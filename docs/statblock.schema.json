@@ -1,0 +1,259 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "campaign-manager-statblocks-v1",
+  "title": "Campaign Manager stat block import file (v1)",
+  "description": "See statblock-import-spec.md. The importer is more lenient than this schema.",
+  "type": "object",
+  "required": [
+    "format",
+    "version",
+    "statblocks"
+  ],
+  "properties": {
+    "format": {
+      "const": "campaign-manager-statblocks"
+    },
+    "version": {
+      "const": 1
+    },
+    "source": {
+      "type": "string"
+    },
+    "attribution": {
+      "type": "string"
+    },
+    "statblocks": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/statblock"
+      }
+    },
+    "collection": {
+      "type": "string"
+    }
+  },
+  "$defs": {
+    "statblock": {
+      "type": "object",
+      "required": [
+        "name"
+      ],
+      "additionalProperties": true,
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "size": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string"
+        },
+        "alignment": {
+          "type": "string"
+        },
+        "ac": {
+          "type": "integer"
+        },
+        "ac_note": {
+          "type": "string"
+        },
+        "hp": {
+          "type": "integer"
+        },
+        "hp_formula": {
+          "type": "string"
+        },
+        "speed": {
+          "type": "string"
+        },
+        "initiative": {
+          "type": "integer"
+        },
+        "abilities": {
+          "type": "object",
+          "properties": {
+            "str": {
+              "type": "integer"
+            },
+            "dex": {
+              "type": "integer"
+            },
+            "con": {
+              "type": "integer"
+            },
+            "int": {
+              "type": "integer"
+            },
+            "wis": {
+              "type": "integer"
+            },
+            "cha": {
+              "type": "integer"
+            }
+          }
+        },
+        "saves": {
+          "type": "string"
+        },
+        "skills": {
+          "type": "string"
+        },
+        "damage_vulnerabilities": {
+          "type": "string"
+        },
+        "damage_resistances": {
+          "type": "string"
+        },
+        "damage_immunities": {
+          "type": "string"
+        },
+        "condition_immunities": {
+          "type": "string"
+        },
+        "senses": {
+          "type": "string"
+        },
+        "passive_perception": {
+          "type": "integer"
+        },
+        "languages": {
+          "type": "string"
+        },
+        "cr": {
+          "type": "string"
+        },
+        "proficiency_bonus": {
+          "type": "integer"
+        },
+        "traits": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/feature"
+          }
+        },
+        "actions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/feature"
+          }
+        },
+        "bonus_actions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/feature"
+          }
+        },
+        "reactions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/feature"
+          }
+        },
+        "legendary_actions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/feature"
+          }
+        },
+        "legendary_intro": {
+          "type": "string"
+        },
+        "notes": {
+          "type": "string"
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "source": {
+          "type": "string"
+        },
+        "collection": {
+          "type": "string"
+        }
+      }
+    },
+    "feature": {
+      "type": "object",
+      "required": [
+        "name"
+      ],
+      "additionalProperties": true,
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "usage": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        },
+        "attack": {
+          "type": "object",
+          "required": [
+            "bonus"
+          ],
+          "properties": {
+            "bonus": {
+              "type": "integer"
+            },
+            "kind": {
+              "enum": [
+                "melee",
+                "ranged",
+                "melee or ranged"
+              ]
+            },
+            "range": {
+              "type": "string"
+            }
+          }
+        },
+        "save": {
+          "type": "object",
+          "required": [
+            "ability",
+            "dc"
+          ],
+          "properties": {
+            "ability": {
+              "enum": [
+                "STR",
+                "DEX",
+                "CON",
+                "INT",
+                "WIS",
+                "CHA"
+              ]
+            },
+            "dc": {
+              "type": "integer"
+            }
+          }
+        },
+        "damage": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "dice"
+            ],
+            "properties": {
+              "dice": {
+                "type": "string",
+                "pattern": "^[0-9dD+\\-]+$"
+              },
+              "type": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

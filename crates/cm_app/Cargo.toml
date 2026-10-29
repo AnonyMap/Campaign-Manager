@@ -1,0 +1,33 @@
+[package]
+name = "campaign-manager"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Campaign Manager — a desktop tool for Dungeon Masters"
+
+build = "build.rs"
+
+[[bin]]
+name = "campaign-manager"
+path = "src/main.rs"
+
+[build-dependencies]
+# Embeds the icon and version info in the Windows .exe (does nothing on other platforms).
+winresource = "0.1"
+
+[dependencies]
+cm_core = { path = "../cm_core" }
+eframe = { version = "0.33", default-features = false, features = ["default_fonts", "glow", "wayland", "x11"] }
+egui = "0.33"
+egui_extras = { version = "0.33", features = ["image", "file"] }
+egui_commonmark = { version = "0.22", default-features = false, features = ["pulldown_cmark", "load-images"] }
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp", "bmp"] }
+rfd = { version = "0.15", default-features = false, features = ["xdg-portal", "async-std"] }
+directories = "6"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+fastrand = "2"
+uuid = { version = "1", features = ["v4"] }
+

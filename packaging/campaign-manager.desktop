@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Campaign Manager
+GenericName=D&D Campaign Manager
+Comment=Plan and run tabletop campaigns: story cards, sessions, NPCs, encounters, dice
+Exec=campaign-manager %f
+Icon=campaign-manager
+Terminal=false
+Categories=Game;RolePlaying;Utility;
+Keywords=dnd;d&d;rpg;dungeon master;dice;initiative;obsidian;
