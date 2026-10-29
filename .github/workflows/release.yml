@@ -1,0 +1,68 @@
+name: Build & release
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test --workspace
+
+  linux:
+    needs: test
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: sudo apt-get update && sudo apt-get install -y libfuse2 python3-pip
+      - run: pip install ziglang cargo-zigbuild
+      - run: bash packaging/build-appimage.sh
+      - run: bash packaging/make-source-tar.sh
+      - uses: actions/upload-artifact@v4
+        with: { name: linux, path: dist/* }
+
+  macos:
+    needs: test
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with: { targets: "aarch64-apple-darwin,x86_64-apple-darwin" }
+      - uses: Swatinem/rust-cache@v2
+      - run: bash packaging/build-macos.sh
+      - uses: actions/upload-artifact@v4
+        with: { name: macos, path: dist/* }
+
+  windows:
+    needs: test
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: powershell -ExecutionPolicy Bypass -File packaging\build-windows.ps1
+      - uses: actions/upload-artifact@v4
+        with: { name: windows, path: dist/* }
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [linux, macos, windows]
+    runs-on: ubuntu-latest
+    permissions: { contents: write }
+    steps:
+      - uses: actions/download-artifact@v4
+        with: { path: dist, merge-multiple: true }
+      - uses: softprops/action-gh-release@v2
+        with: { files: dist/* }
