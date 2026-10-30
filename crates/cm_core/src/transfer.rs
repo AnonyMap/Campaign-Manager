@@ -290,10 +290,7 @@ pub fn prune_dangling(c: &mut Campaign) -> usize {
         let b = x.factions.len();
         x.factions.retain(|f| factions.contains(f));
         count(b - x.factions.len());
-        if x.statblock.map(|s| !statblocks.contains(&s)).unwrap_or(false) {
-            x.statblock = None;
-            count(1);
-        }
+        count(x.retain_statblocks(|s| statblocks.contains(&s)));
     }
     for e in &mut c.encounters {
         let b = e.entries.len();
@@ -304,6 +301,12 @@ pub fn prune_dangling(c: &mut Campaign) -> usize {
             CombatantSource::AdHoc => true,
         });
         count(b - e.entries.len());
+        for en in &mut e.entries {
+            if en.form.map(|f| !statblocks.contains(&f)).unwrap_or(false) {
+                en.form = None;
+                count(1);
+            }
+        }
     }
     for l in &mut c.locations {
         if l.parent.map(|p| !places.contains(&p)).unwrap_or(false) {
@@ -725,6 +728,28 @@ mod tests {
         assert_eq!(fresh.child_locations(fresh.locations[0].id).len(), 2);
         assert_eq!(fresh.locations[2].shop.as_ref().unwrap().keeper, c.locations[2].shop.as_ref().unwrap().keeper);
         assert!(fresh.npcs.iter().any(|n| n.statblock.is_some()));
+    }
+
+    #[test]
+    fn extra_stat_blocks_travel_with_the_bestiary() {
+        let mut c = crate::sample_campaign();
+        for name in ["Wolf form", "Phase 2"] {
+            let mut sb = crate::bestiary::StatBlock::default();
+            sb.core.name = name.into();
+            c.npcs[0].add_statblock(sb.id);
+            c.statblocks.push(sb);
+        }
+        let nid = c.npcs[0].id;
+        let ids = c.npcs[0].statblock_ids();
+        assert!(ids.len() >= 2);
+        // with the bestiary: every form comes along, in order
+        let mut fresh = Campaign::new("A");
+        merge(&mut fresh, &c, &[Part::Npcs, Part::Bestiary], Duplicates::Skip).unwrap();
+        assert_eq!(fresh.npc(nid).unwrap().statblock_ids(), ids);
+        // without it: no dangling references are left behind
+        let mut bare = Campaign::new("B");
+        merge(&mut bare, &c, &[Part::Npcs], Duplicates::Skip).unwrap();
+        assert!(bare.npcs.iter().all(|n| n.statblock_ids().is_empty()));
     }
 
     #[test]

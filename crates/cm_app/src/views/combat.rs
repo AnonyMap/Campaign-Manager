@@ -962,6 +962,7 @@ fn add_window(ctx: &egui::Context, doc: &mut Doc, sh: &mut Shared, st: &mut Stat
     };
     let mut open = true;
     let mut chosen: Option<CombatantSource> = None;
+    let mut chosen_form: Option<Id> = None;
     egui::Window::new(title)
         .id(egui::Id::new("combat_add_window"))
         .open(&mut open)
@@ -1030,10 +1031,26 @@ fn add_window(ctx: &egui::Context, doc: &mut Doc, sh: &mut Shared, st: &mut Stat
                             ui.weak("No NPCs match.");
                         }
                         for n in list {
-                            let cr = doc.c.cr_for(&CombatantSource::Npc(n.id)).map(|c| format!("  (CR {c})")).unwrap_or_default();
-                            if ui.button(format!("{}{cr}", n.core.display_name())).clicked() {
-                                chosen = Some(CombatantSource::Npc(n.id));
-                            }
+                            let src = CombatantSource::Npc(n.id);
+                            let cr = doc.c.cr_for(&src).map(|c| format!("  (CR {c})")).unwrap_or_default();
+                            ui.horizontal_wrapped(|ui| {
+                                if ui.button(format!("{}{cr}", n.core.display_name())).clicked() {
+                                    chosen = Some(src.clone());
+                                }
+                                // other forms: "as Wolf", "as Phase 2"
+                                for f in &n.other_statblocks {
+                                    let Some(sb) = doc.c.statblock(*f) else { continue };
+                                    let cr = doc.c.cr_as(&src, Some(*f)).map(|c| format!(" (CR {c})")).unwrap_or_default();
+                                    if ui
+                                        .small_button(format!("as {}{cr}", sb.name()))
+                                        .on_hover_text(format!("Add {} using the {} stat block", n.core.display_name(), sb.name()))
+                                        .clicked()
+                                    {
+                                        chosen = Some(src.clone());
+                                        chosen_form = Some(*f);
+                                    }
+                                }
+                            });
                         }
                     });
                 }
@@ -1069,6 +1086,7 @@ fn add_window(ctx: &egui::Context, doc: &mut Doc, sh: &mut Shared, st: &mut Stat
             ally: a.ally,
             roll_together: a.together,
             summoned_by: summoner.as_ref().map(|s| s.0),
+            form: chosen_form,
         };
         let name = st.adhoc_name.trim().to_string();
         let adhoc = if src == CombatantSource::AdHoc {
@@ -1393,6 +1411,33 @@ fn detail(ui: &mut egui::Ui, doc: &mut Doc, sh: &mut Shared, st: &mut State, enc
         });
     }
 
+    // an NPC with several stat blocks: which one it's fighting as
+    if let CombatantSource::Npc(nid) = &src {
+        let forms = doc.c.npc(*nid).map(|n| n.statblock_ids()).unwrap_or_default();
+        if forms.len() > 1 {
+            let current = enc.get(cid).and_then(|c| c.form);
+            let mut pick: Option<Option<Id>> = None;
+            ui.horizontal_wrapped(|ui| {
+                ui.label("Form").on_hover_text(
+                    "Which of this NPC's stat blocks it's using. AC and max HP follow the stat block; current HP carries over \
+                     (an unhurt creature starts the new form at full HP).",
+                );
+                for (i, f) in forms.iter().enumerate() {
+                    let Some(sb) = doc.c.statblock(*f) else { continue };
+                    let value = if i == 0 { None } else { Some(*f) };
+                    if ui.selectable_label(current == value, sb.name()).clicked() && current != value {
+                        pick = Some(value);
+                    }
+                }
+            });
+            if let Some(form) = pick {
+                if enc.switch_form(&doc.c, cid, form) {
+                    sh.toast(enc.log.last().cloned().unwrap_or_default());
+                }
+            }
+        }
+    }
+
     // side, shared initiative, summons
     {
         let c = enc.get(cid).unwrap().clone();
@@ -1523,8 +1568,11 @@ fn detail(ui: &mut egui::Ui, doc: &mut Doc, sh: &mut Shared, st: &mut State, enc
             if ui_util::opt_int_commit(ui, ("cinitmod", cid), &mut m, 40.0) {
                 enc.set_initiative_mod(&mut doc.c, cid, m);
             }
+            // a stat block or an NPC's other form keeps the change on this creature
+            let own_record = !matches!(src, CombatantSource::StatBlock(_)) && !doc.c.is_other_form(&src, enc.get(cid).and_then(|c| c.form));
             ui.weak(match init_src {
-                cm_core::InitSource::Assigned(_) => "assigned (saved to record)".to_string(),
+                cm_core::InitSource::Assigned(_) if own_record => "assigned (saved to record)".to_string(),
+                cm_core::InitSource::Assigned(_) => "assigned (this creature only)".to_string(),
                 other => other.describe(),
             });
         });
@@ -1537,7 +1585,15 @@ fn detail(ui: &mut egui::Ui, doc: &mut Doc, sh: &mut Shared, st: &mut State, enc
             if ui_util::opt_int_commit(ui, ("cmaxhp", cid), &mut m, 50.0) {
                 enc.set_max_hp(&mut doc.c, cid, m);
             }
-            let formula = doc.c.core_for(&src).map(|c| c.hp_formula.clone()).unwrap_or_default();
+            // the HP dice of the form it's in (an NPC's own formula wins for its main form)
+            let form = enc.get(cid).and_then(|c| c.form);
+            let block = doc
+                .c
+                .statblock_as(&src, form)
+                .map(|s| s.core.hp_formula.clone())
+                .filter(|f| !f.trim().is_empty());
+            let own = doc.c.core_for(&src).map(|c| c.hp_formula.clone()).filter(|f| !f.trim().is_empty());
+            let formula = if doc.c.is_other_form(&src, form) { block.or(own) } else { own.or(block) }.unwrap_or_default();
             if !formula.trim().is_empty()
                 && ui
                     .small_button(format!("🎲 {formula}"))
@@ -1668,7 +1724,8 @@ fn detail(ui: &mut egui::Ui, doc: &mut Doc, sh: &mut Shared, st: &mut State, enc
     }
 
     // stat block (the combatant's own, or the one its NPC uses)
-    if let Some(sb) = doc.c.statblock_for(&src).cloned() {
+    let form = enc.get(cid).and_then(|c| c.form);
+    if let Some(sb) = doc.c.statblock_as(&src, form).cloned() {
         ui.add_space(6.0);
         egui::CollapsingHeader::new(RichText::new(format!("Stat block · {}", sb.name())).strong())
             .id_salt(("csb", sb.id))

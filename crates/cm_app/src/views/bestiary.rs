@@ -70,6 +70,8 @@ pub struct State {
     rename_to: Option<String>,
     /// SRD list for the current filter / type / sort (worked out when those change).
     srd_cache: Option<(String, Option<String>, Sort, Vec<usize>)>,
+    /// Filter for the "Give to an NPC" menu.
+    npc_filter: String,
 }
 
 impl State {
@@ -536,7 +538,7 @@ fn bulk_bar(ui: &mut egui::Ui, doc: &mut Doc, sh: &mut Shared, st: &mut State, s
                 });
             });
             if let Some(ids) = st.confirm_delete.clone() {
-                let users = doc.c.npcs.iter().filter(|npc| npc.statblock.map(|s| ids.contains(&s)).unwrap_or(false)).count();
+                let users = doc.c.npcs.iter().filter(|npc| ids.iter().any(|s| npc.uses_statblock(*s))).count();
                 ui.separator();
                 ui.label(RichText::new(format!("Delete {}?", ui_util::plural(ids.len(), "stat block"))).strong());
                 if users > 0 {
@@ -636,6 +638,7 @@ fn campaign_detail(ui: &mut egui::Ui, doc: &mut Doc, sh: &mut Shared, st: &mut S
             ui.label(RichText::new("Stat blocks are templates").strong());
             ui.weak("Use one for many NPCs (“Captain Vask” and “Old Greta” can both use Veteran),");
             ui.weak("or add them straight to encounters. Edit an NPC's own AC/HP to override the template.");
+            ui.weak("An NPC can have several: a druid's wild shape, a villain's second phase.");
             ui.add_space(12.0);
             if ui.button("📥 Import from a book or PDF with AI…").clicked() {
                 st.import = Some(ImportUi::default());
@@ -650,8 +653,18 @@ fn campaign_detail(ui: &mut egui::Ui, doc: &mut Doc, sh: &mut Shared, st: &mut S
         .c
         .npcs
         .iter()
-        .filter(|n| n.statblock == Some(id))
-        .map(|n| (n.id, n.core.display_name()))
+        .filter(|n| n.uses_statblock(id))
+        .map(|n| {
+            let main = n.statblock == Some(id);
+            (
+                n.id,
+                if main {
+                    n.core.display_name()
+                } else {
+                    format!("{} (other form)", n.core.display_name())
+                },
+            )
+        })
         .collect();
     let name = doc.c.statblock(id).unwrap().name();
     ui.heading(&name);
@@ -665,6 +678,52 @@ fn campaign_detail(ui: &mut egui::Ui, doc: &mut Doc, sh: &mut Shared, st: &mut S
         }
         if ui.button("👤 Create NPC").on_hover_text("A named NPC that uses this stat block").clicked() {
             create_npc(doc, sh, id);
+        }
+        let mut give: Option<Id> = None;
+        ui_util::form_menu(ui, "👤 Give to an NPC…", |ui| {
+            ui.set_min_width(260.0);
+            ui.set_max_width(320.0);
+            let r = ui.add(egui::TextEdit::singleline(&mut st.npc_filter).hint_text("Filter NPCs…").desired_width(260.0));
+            if ui.memory(|m| m.focused().is_none()) {
+                r.request_focus();
+            }
+            let f = st.npc_filter.trim().to_lowercase();
+            egui::ScrollArea::vertical().max_height(280.0).show(ui, |ui| {
+                let mut list: Vec<&Npc> = doc.c.npcs.iter().filter(|n| f.is_empty() || n.core.name.to_lowercase().contains(&f)).collect();
+                list.sort_by_key(|n| n.core.name.to_lowercase());
+                if list.is_empty() {
+                    ui.weak("No NPCs match.");
+                }
+                for n in list {
+                    let note = if n.uses_statblock(id) {
+                        " ✔"
+                    } else if n.statblock.is_some() {
+                        "  · as another form"
+                    } else {
+                        ""
+                    };
+                    if ui
+                        .add_enabled(!n.uses_statblock(id), egui::Button::new(format!("{}{note}", n.core.display_name())))
+                        .clicked()
+                    {
+                        give = Some(n.id);
+                        ui.close();
+                    }
+                }
+            });
+        })
+        .on_hover_text("Add this stat block to an existing NPC. If they already have one, it becomes another form (wild shape, phase 2…).");
+        if let Some(nid) = give {
+            if let Some(n) = doc.c.npc_mut(nid) {
+                let other = n.statblock.is_some();
+                n.add_statblock(id);
+                let who = n.core.display_name();
+                sh.toast(if other {
+                    format!("Added to {who} as another form")
+                } else {
+                    format!("{who} now uses this stat block")
+                });
+            }
         }
         if ui.button("Duplicate").clicked() {
             let mut copy = doc.c.statblock(id).unwrap().clone();

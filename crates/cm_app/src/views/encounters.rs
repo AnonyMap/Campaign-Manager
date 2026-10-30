@@ -68,6 +68,29 @@ pub fn show(ui: &mut egui::Ui, doc: &mut Doc, sh: &mut Shared, st: &mut State) {
                     .map(|s| (CombatantSource::StatBlock(s.id), s.name(), s.core.max_hp, s.core.ac, s.core.cr.clone())),
             )
             .collect();
+        // NPCs with several stat blocks: (form, label, hp, ac, cr) for each
+        type Form = (Option<Id>, String, Option<i32>, Option<i32>, String);
+        let forms: std::collections::HashMap<Id, Vec<Form>> = doc
+            .c
+            .npcs
+            .iter()
+            .filter(|n| !n.other_statblocks.is_empty())
+            .map(|n| {
+                let src = CombatantSource::Npc(n.id);
+                let list = n
+                    .statblock_ids()
+                    .into_iter()
+                    .enumerate()
+                    .filter_map(|(i, f)| {
+                        let form = if i == 0 { None } else { Some(f) };
+                        let sb = doc.c.statblock(f)?;
+                        let (ac, hp) = doc.c.combat_numbers(&src, form);
+                        Some((form, sb.name(), hp, ac, doc.c.cr_as(&src, form).unwrap_or_default()))
+                    })
+                    .collect();
+                (n.id, list)
+            })
+            .collect();
         let party_levels: Vec<u32> = doc.c.players.iter().filter(|p| p.active).filter_map(|p| p.core.level).collect();
         let estimate = estimate_difficulty(doc.c.encounter(id).unwrap(), &doc.c, &party_levels);
         let sessions: Vec<(Id, String, bool)> = doc
@@ -144,14 +167,39 @@ pub fn show(ui: &mut egui::Ui, doc: &mut Doc, sh: &mut Shared, st: &mut State) {
                             ui_util::opt_int(ui, ("einit", en.id), &mut en.initiative_mod, 40.0);
                         }
                         src => {
-                            let info = names.iter().find(|n| n.0 == *src);
+                            let info = names.iter().find(|n| n.0 == *src).cloned();
+                            let npc_forms = match src {
+                                CombatantSource::Npc(nid) => forms.get(nid),
+                                _ => None,
+                            };
+                            // the chosen form's numbers replace the main ones
+                            let info = match (info, npc_forms.and_then(|l| l.iter().find(|f| f.0 == en.form))) {
+                                (Some((s, name, ..)), Some((_, _, hp, ac, cr))) => Some((s, name, *hp, *ac, cr.clone())),
+                                (i, _) => i,
+                            };
                             match info {
                                 Some((_, name, hp, ac, cr)) => {
-                                    if ui.link(name).clicked() {
-                                        if let Some(l) = src.link() {
-                                            sh.actions.push(Action::Open(l));
+                                    ui.horizontal(|ui| {
+                                        if ui.link(&name).clicked() {
+                                            if let Some(l) = src.link() {
+                                                sh.actions.push(Action::Open(l));
+                                            }
                                         }
-                                    }
+                                        if let Some(list) = npc_forms {
+                                            let shown = list.iter().find(|f| f.0 == en.form).map(|f| f.1.clone()).unwrap_or_default();
+                                            egui::ComboBox::from_id_salt(("eform", en.id))
+                                                .selected_text(RichText::new(format!("as {shown}")).small())
+                                                .width(110.0)
+                                                .truncate()
+                                                .show_ui(ui, |ui| {
+                                                    for f in list {
+                                                        ui.selectable_value(&mut en.form, f.0, &f.1);
+                                                    }
+                                                })
+                                                .response
+                                                .on_hover_text("Which of this NPC's stat blocks it fights as");
+                                        }
+                                    });
                                     ui.label(hp.map(|h| h.to_string()).unwrap_or("—".into()));
                                     ui.label(ac.map(|h| h.to_string()).unwrap_or("—".into()));
                                     ui.weak(if cr.is_empty() { String::new() } else { format!("CR {cr}") });

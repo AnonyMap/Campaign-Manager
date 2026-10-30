@@ -108,6 +108,8 @@ pub struct Combatant {
     pub summoned_by: Option<Id>,
     /// Orders combatants with equal initiative (higher first). Set when you drag a row.
     pub tiebreak: i32,
+    /// For an NPC with several stat blocks: the one it's fighting as (None = the main one).
+    pub form: Option<Id>,
 }
 
 impl Default for Combatant {
@@ -132,6 +134,7 @@ impl Default for Combatant {
             init_group: None,
             summoned_by: None,
             tiebreak: 0,
+            form: None,
         }
     }
 }
@@ -144,6 +147,8 @@ pub struct AddOptions {
     /// Copies share one initiative roll.
     pub roll_together: bool,
     pub summoned_by: Option<Id>,
+    /// Which of an NPC's stat blocks to fight as (None = the main one).
+    pub form: Option<Id>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -496,7 +501,7 @@ impl RunningEncounter {
                     }
                     src => {
                         if campaign.core_for(src).is_some() {
-                            r.add_from_campaign(campaign, src.clone());
+                            r.add_from_campaign_as(campaign, src.clone(), entry.form);
                         }
                     }
                 }
@@ -519,7 +524,7 @@ impl RunningEncounter {
             let id = match (&src, adhoc) {
                 (CombatantSource::AdHoc, Some((name, hp, ac))) => Some(self.add_adhoc(if name.trim().is_empty() { "Creature" } else { name }, hp, ac)),
                 (CombatantSource::AdHoc, None) => Some(self.add_adhoc("Creature", None, None)),
-                (s, _) => self.add_from_campaign(campaign, s.clone()),
+                (s, _) => self.add_from_campaign_as(campaign, s.clone(), opts.form),
             };
             if let Some(id) = id {
                 ids.push(id);
@@ -663,17 +668,22 @@ impl RunningEncounter {
 
     /// Add a PC/NPC from the campaign. Returns the new combatant's id.
     pub fn add_from_campaign(&mut self, campaign: &Campaign, src: CombatantSource) -> Option<Id> {
+        self.add_from_campaign_as(campaign, src, None)
+    }
+
+    /// Add a PC/NPC fighting as one of its stat blocks (`form`; None = the main one).
+    pub fn add_from_campaign_as(&mut self, campaign: &Campaign, src: CombatantSource, form: Option<Id>) -> Option<Id> {
         let core = campaign.core_for(&src)?;
         // An NPC's blank AC/HP fall back to its stat block.
-        let sb = campaign.statblock_for(&src);
-        let ac = core.ac.or_else(|| sb.and_then(|s| s.core.ac));
-        let max_hp = core.max_hp.or_else(|| sb.and_then(|s| s.core.max_hp));
+        let form = form.filter(|_| campaign.is_other_form(&src, form));
+        let (ac, max_hp) = campaign.combat_numbers(&src, form);
         let c = Combatant {
             source: src,
             name: core.display_name(),
             ac,
             max_hp,
             current_hp: max_hp,
+            form,
             ..Default::default()
         };
         let id = c.id;
@@ -773,8 +783,8 @@ impl RunningEncounter {
             .trim()
             .strip_prefix("init ")
             .and_then(|rest| rest.trim().trim_start_matches('+').parse::<i32>().ok());
-        let from_template = matches!(c.source, CombatantSource::StatBlock(_)) && noted.is_some();
-        match campaign.initiative_source_for(&c.source) {
+        let from_template = (matches!(c.source, CombatantSource::StatBlock(_)) || campaign.is_other_form(&c.source, c.form)) && noted.is_some();
+        match campaign.initiative_source_as(&c.source, c.form) {
             Some(s) if !from_template => s,
             _ => noted.map(InitSource::Assigned).unwrap_or(InitSource::None),
         }
@@ -1177,6 +1187,34 @@ impl RunningEncounter {
         n
     }
 
+    /// Change which of an NPC's stat blocks a combatant fights as (None = the main one).
+    /// AC and max HP follow the new stat block. Current HP stays as it is (capped at the
+    /// new maximum) unless the combatant was unhurt, in which case it starts the new form
+    /// at full HP. Returns false if nothing changed.
+    pub fn switch_form(&mut self, campaign: &Campaign, id: Id, form: Option<Id>) -> bool {
+        let Some(c) = self.get(id) else { return false };
+        let src = c.source.clone();
+        let form = form.filter(|_| campaign.is_other_form(&src, form));
+        if c.form == form || !matches!(src, CombatantSource::Npc(_)) {
+            return false;
+        }
+        let (ac, max_hp) = campaign.combat_numbers(&src, form);
+        let label = campaign.statblock_as(&src, form).map(|s| s.name()).unwrap_or_else(|| "its own stats".into());
+        let Some(c) = self.get_mut(id) else { return false };
+        let unhurt = c.current_hp.is_none() || c.current_hp == c.max_hp;
+        c.form = form;
+        c.ac = ac;
+        c.max_hp = max_hp;
+        c.current_hp = match (unhurt, c.current_hp, max_hp) {
+            (true, _, m) => m,
+            (false, Some(cur), Some(m)) => Some(cur.min(m)),
+            (false, cur, _) => cur,
+        };
+        let name = c.name.clone();
+        self.log.push(format!("{name} changed to {label}"));
+        true
+    }
+
     // -- write-back to campaign records ------------------------------------
 
     /// Set max HP on a combatant; for PCs/NPCs this also updates the campaign record so
@@ -1191,8 +1229,10 @@ impl RunningEncounter {
             c.current_hp = Some(cur.min(m));
         }
         let src = c.source.clone();
+        let form = c.form;
         // A stat block is a template: one goblin's rolled HP shouldn't change every goblin.
-        if matches!(src, CombatantSource::StatBlock(_)) {
+        // Nor should a dragon form's HP become the NPC's own.
+        if matches!(src, CombatantSource::StatBlock(_)) || campaign.is_other_form(&src, form) {
             return;
         }
         if let Some(core) = campaign.core_for_mut(&src) {
@@ -1204,7 +1244,7 @@ impl RunningEncounter {
         let Some(c) = self.get(id) else { return };
         let src = c.source.clone();
         // a stat block is a template: keep one creature's change on that creature
-        let target = if matches!(src, CombatantSource::StatBlock(_)) {
+        let target = if matches!(src, CombatantSource::StatBlock(_)) || campaign.is_other_form(&src, c.form) {
             None
         } else {
             campaign.core_for_mut(&src)
@@ -1226,8 +1266,8 @@ impl RunningEncounter {
         let Some(c) = self.get_mut(id) else { return };
         c.ac = ac;
         let src = c.source.clone();
-        if matches!(src, CombatantSource::StatBlock(_)) {
-            return; // one goblin's AC isn't every goblin's
+        if matches!(src, CombatantSource::StatBlock(_)) || campaign.is_other_form(&src, c.form) {
+            return; // one goblin's AC isn't every goblin's (nor is a wolf form's the NPC's)
         }
         if let Some(core) = campaign.core_for_mut(&src) {
             core.ac = ac;
@@ -1250,7 +1290,7 @@ impl RunningEncounter {
         for c in &self.combatants {
             // merge identical sources into counts
             if c.source != CombatantSource::AdHoc {
-                if let Some(e) = enc.entries.iter_mut().find(|e| e.source == c.source && e.ally == c.ally) {
+                if let Some(e) = enc.entries.iter_mut().find(|e| e.source == c.source && e.ally == c.ally && e.form == c.form) {
                     e.count += 1;
                     continue;
                 }
@@ -1263,6 +1303,7 @@ impl RunningEncounter {
                 name: if c.source == CombatantSource::AdHoc { c.name.clone() } else { String::new() },
                 max_hp: if c.source == CombatantSource::AdHoc { c.max_hp } else { None },
                 ac: if c.source == CombatantSource::AdHoc { c.ac } else { None },
+                form: c.form,
                 ..Default::default()
             });
         }
@@ -1379,7 +1420,7 @@ pub fn estimate_difficulty(enc: &Encounter, campaign: &Campaign, party_levels: &
     let mut unknown = 0;
     for e in enc.entries.iter().filter(|e| !e.ally) {
         if matches!(e.source, CombatantSource::Npc(_) | CombatantSource::StatBlock(_)) {
-            match campaign.cr_for(&e.source).and_then(|cr| xp_for_cr(&cr)) {
+            match campaign.cr_as(&e.source, e.form).and_then(|cr| xp_for_cr(&cr)) {
                 Some(xp) => monster_xp += xp * e.count.max(1),
                 None => unknown += e.count.max(1) as usize,
             }
@@ -2069,5 +2110,140 @@ mod tests {
         assert_eq!((r.round, left(&r)), (1, Some(3)));
         assert_eq!(r.current().unwrap().id, p);
         assert_eq!(r.up_next().unwrap().id, g);
+    }
+
+    fn block(json: &str) -> crate::bestiary::StatBlock {
+        crate::bestiary::import_json(json).unwrap().statblocks.remove(0)
+    }
+
+    /// An NPC (own AC 15, no HP) with a main "Mage" stat block and a "Dragon" form.
+    fn shapeshifter() -> (Campaign, Id, Id, Id) {
+        let (mut c, _, _) = setup();
+        let mage = block(r#"[{"name":"Mage","ac":12,"hp":40,"cr":"6","initiative":2}]"#);
+        let dragon = block(r#"[{"name":"Dragon","ac":18,"hp":180,"cr":"10","initiative":0}]"#);
+        let (mid, did) = (mage.id, dragon.id);
+        c.statblocks.push(mage);
+        c.statblocks.push(dragon);
+        let mut n = crate::model::Npc::default();
+        n.core.name = "Vex".into();
+        n.core.ac = Some(15);
+        n.add_statblock(mid);
+        n.add_statblock(did);
+        let nid = n.id;
+        c.npcs.push(n);
+        (c, nid, mid, did)
+    }
+
+    #[test]
+    fn npc_statblock_list() {
+        let (a, b, d) = (new_id(), new_id(), new_id());
+        let mut n = crate::model::Npc::default();
+        n.add_statblock(a);
+        n.add_statblock(b);
+        n.add_statblock(b);
+        assert_eq!((n.statblock, n.other_statblocks.clone()), (Some(a), vec![b]));
+        n.set_main_statblock(b);
+        assert_eq!(n.statblock_ids(), vec![b, a]);
+        n.replace_statblock(a, d);
+        assert_eq!(n.statblock_ids(), vec![b, d]);
+        n.replace_statblock(d, b); // already has b: just drop d
+        assert_eq!(n.statblock_ids(), vec![b]);
+        n.add_statblock(a);
+        n.remove_statblock(b); // main removed: the next one takes over
+        assert_eq!((n.statblock, n.other_statblocks.len()), (Some(a), 0));
+        assert_eq!(n.retain_statblocks(|_| false), 1);
+        assert_eq!(n.statblock, None);
+    }
+
+    #[test]
+    fn npc_forms_in_combat() {
+        let (mut c, nid, _mid, did) = shapeshifter();
+        let src = CombatantSource::Npc(nid);
+        // main form: the NPC's own AC wins, blanks come from the Mage
+        assert_eq!(c.combat_numbers(&src, None), (Some(15), Some(40)));
+        // other form: the dragon's numbers win
+        assert_eq!(c.combat_numbers(&src, Some(did)), (Some(18), Some(180)));
+        assert_eq!(c.cr_as(&src, Some(did)).as_deref(), Some("10"));
+        assert_eq!(c.cr_as(&src, None).as_deref(), Some("6"));
+        // a stat block the NPC doesn't use is ignored
+        assert_eq!(c.combat_numbers(&src, Some(new_id())), (Some(15), Some(40)));
+
+        let mut r = RunningEncounter::new("x");
+        let v = r.add_from_campaign(&c, src.clone()).unwrap();
+        assert_eq!(r.init_source(&c, r.get(v).unwrap()), InitSource::Assigned(2));
+        // hurt, then change into the dragon: HP stays, AC and max follow the form
+        r.get_mut(v).unwrap().current_hp = Some(25);
+        assert!(r.switch_form(&c, v, Some(did)));
+        let cv = r.get(v).unwrap();
+        assert_eq!((cv.ac, cv.max_hp, cv.current_hp, cv.form), (Some(18), Some(180), Some(25), Some(did)));
+        assert_eq!(r.init_source(&c, cv), InitSource::Assigned(0));
+        assert!(r.log.last().unwrap().contains("Dragon"));
+        assert!(!r.switch_form(&c, v, Some(did)));
+        // editing the dragon's AC in the tracker doesn't touch the NPC's own record
+        r.set_ac(&mut c, v, Some(19));
+        r.set_max_hp(&mut c, v, Some(200));
+        assert_eq!((c.npc(nid).unwrap().core.ac, c.npc(nid).unwrap().core.max_hp), (Some(15), None));
+        // back to the main form: HP capped at the new maximum
+        r.get_mut(v).unwrap().current_hp = Some(120);
+        r.switch_form(&c, v, None);
+        let cv = r.get(v).unwrap();
+        assert_eq!((cv.ac, cv.max_hp, cv.current_hp), (Some(15), Some(40), Some(40)));
+        // an unhurt combatant starts the new form at full HP
+        r.switch_form(&c, v, Some(did));
+        assert_eq!(r.get(v).unwrap().current_hp, Some(180));
+    }
+
+    #[test]
+    fn encounter_entries_remember_the_form() {
+        let (mut c, nid, _mid, did) = shapeshifter();
+        let enc = Encounter {
+            entries: vec![EncounterEntry {
+                source: CombatantSource::Npc(nid),
+                form: Some(did),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        assert_eq!(estimate_difficulty(&enc, &c, &[5]).monster_xp, 5900);
+        let mut run = RunningEncounter::from_premade(&enc, &c);
+        assert_eq!(run.combatants[0].form, Some(did));
+        assert_eq!(run.combatants[0].max_hp, Some(180));
+        let back = run.to_premade();
+        assert_eq!(back.entries[0].form, Some(did));
+        // adding through the add dialog
+        let ids = run.add_with(
+            &c,
+            CombatantSource::Npc(nid),
+            None,
+            &AddOptions {
+                count: 1,
+                form: Some(did),
+                ..Default::default()
+            },
+        );
+        assert_eq!(run.get(ids[0]).unwrap().ac, Some(18));
+        // deleting the dragon stat block drops it everywhere
+        c.encounters.push(enc);
+        c.active_encounter = Some(run);
+        c.delete(&crate::model::Link::StatBlock(did));
+        assert_eq!(c.npc(nid).unwrap().other_statblocks, Vec::<Id>::new());
+        assert_eq!(c.encounters[0].entries[0].form, None);
+        assert!(c.active_encounter.as_ref().unwrap().combatants.iter().all(|x| x.form.is_none()));
+    }
+
+    #[test]
+    fn forms_survive_save_and_older_files() {
+        let (c, nid, mid, did) = shapeshifter();
+        let json = serde_json::to_string(&c).unwrap();
+        let back: Campaign = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.npc(nid).unwrap().statblock_ids(), vec![mid, did]);
+        // the main one is still stored where older versions of the app look for it
+        let v: serde_json::Value = serde_json::from_str(&json).unwrap();
+        let npc = v["npcs"].as_array().unwrap().iter().find(|n| n["core"]["name"] == "Vex").unwrap();
+        assert_eq!(npc["statblock"], serde_json::json!(mid.to_string()));
+        // an older file without the list loads with no other forms
+        let old = r#"{"id":"6c5c9c8e-0000-4000-8000-000000000001","statblock":"6c5c9c8e-0000-4000-8000-000000000002"}"#;
+        let n: crate::model::Npc = serde_json::from_str(old).unwrap();
+        assert_eq!((n.statblock_ids().len(), n.other_statblocks.len()), (1, 0));
     }
 }

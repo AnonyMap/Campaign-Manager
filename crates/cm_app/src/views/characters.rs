@@ -1,6 +1,7 @@
 //! Player characters and NPCs/monsters. Both share the character editor (stats, images,
 //! custom rolls, markdown notes); NPCs add factions, role, status and a name generator.
 
+use cm_core::bestiary::StatBlock;
 use cm_core::names::{self, NameRequest};
 use cm_core::{AbilityScores, CharacterCore, CombatantSource, CustomRoll, Id, Link, Npc, NpcKind, PlayerCharacter, ability_mod, fmt_mod};
 use egui::RichText;
@@ -707,62 +708,132 @@ fn places_of(ui: &mut egui::Ui, doc: &Doc, sh: &mut Shared, id: Id) {
     });
 }
 
-/// Assign / change / show the stat block an NPC uses.
+/// The stat blocks an NPC uses: a main one (fills in the NPC's blank numbers) and any
+/// number of other forms (wild shape, a second phase, an older version).
 fn statblock_row(ui: &mut egui::Ui, doc: &mut Doc, sh: &mut Shared, st: &mut State, id: Id) {
-    let current = doc.c.npc(id).and_then(|n| n.statblock).and_then(|s| doc.c.statblock(s)).cloned();
-    let mut set: Option<Option<Id>> = None;
-    ui.horizontal(|ui| {
-        ui.label("Stat block");
-        match &current {
-            Some(sb) => {
-                let cr = if sb.core.cr.trim().is_empty() {
-                    String::new()
-                } else {
-                    format!("  (CR {})", sb.core.cr.trim())
-                };
-                if ui
-                    .link(RichText::new(format!("🐉 {}{cr}", sb.name())).strong())
-                    .on_hover_text("Open in the Bestiary")
+    enum Op {
+        Add(Id),
+        Replace(Id, Id),
+        Remove(Id),
+        Main(Id),
+    }
+    let ids = doc.c.npc(id).map(|n| n.statblock_ids()).unwrap_or_default();
+    let blocks: Vec<StatBlock> = ids.iter().filter_map(|s| doc.c.statblock(*s).cloned()).collect();
+    let mut op: Option<Op> = None;
+    let cr_of = |sb: &StatBlock| {
+        if sb.core.cr.trim().is_empty() {
+            String::new()
+        } else {
+            format!("  (CR {})", sb.core.cr.trim())
+        }
+    };
+    // a label column, so a second stat block lines up under the first
+    let label_w = {
+        let font = egui::TextStyle::Body.resolve(ui.style());
+        ui.fonts_mut(|f| f.layout_no_wrap("Stat blocks".into(), font, egui::Color32::WHITE).size().x)
+    };
+    let label_cell = |ui: &mut egui::Ui, text: &str| {
+        let h = ui.spacing().interact_size.y;
+        ui.allocate_ui_with_layout(egui::vec2(label_w, h), egui::Layout::left_to_right(egui::Align::Center), |ui| {
+            ui.set_min_width(label_w);
+            ui.label(text);
+        });
+    };
+    if blocks.is_empty() {
+        ui.horizontal(|ui| {
+            ui.label("Stat block");
+            ui_util::form_menu(ui, "Assign…", |ui| {
+                if let Some(sid) = crate::views::statblock::picker(ui, doc, &mut st.sb_filter) {
+                    op = Some(Op::Add(sid));
+                    ui.close();
+                }
+            })
+            .on_hover_text("Use a bestiary / SRD stat block for this NPC's combat stats");
+            ui.weak("none — this NPC's own numbers are used");
+        });
+    }
+    for (i, sb) in blocks.iter().enumerate() {
+        ui.horizontal(|ui| {
+            label_cell(
+                ui,
+                match (i, blocks.len()) {
+                    (0, 1) => "Stat block",
+                    (0, _) => "Stat blocks",
+                    _ => "",
+                },
+            );
+            if ui
+                .link(RichText::new(format!("🐉 {}{}", sb.name(), cr_of(sb))).strong())
+                .on_hover_text("Open in the Bestiary")
+                .clicked()
+            {
+                sh.actions.push(Action::Open(Link::StatBlock(sb.id)));
+            }
+            if blocks.len() > 1 {
+                if i == 0 {
+                    ui.weak("main")
+                        .on_hover_text("Fills in this NPC's blank AC, HP, initiative and CR, and is used when it joins a fight");
+                } else if ui
+                    .small_button("Make main")
+                    .on_hover_text("Use this one by default (the current main one becomes another form)")
                     .clicked()
                 {
-                    sh.actions.push(Action::Open(Link::StatBlock(sb.id)));
-                }
-                ui_util::form_menu(ui, "Change…", |ui| {
-                    if let Some(sid) = crate::views::statblock::picker(ui, doc, &mut st.sb_filter) {
-                        set = Some(Some(sid));
-                        ui.close();
-                    }
-                });
-                if ui.small_button("✖").on_hover_text("Stop using this stat block").clicked() {
-                    set = Some(None);
+                    op = Some(Op::Main(sb.id));
                 }
             }
-            None => {
-                ui_util::form_menu(ui, "Assign…", |ui| {
-                    if let Some(sid) = crate::views::statblock::picker(ui, doc, &mut st.sb_filter) {
-                        set = Some(Some(sid));
-                        ui.close();
-                    }
-                })
-                .on_hover_text("Use a bestiary / SRD stat block for this NPC's combat stats");
-                ui.weak("none — this NPC's own numbers are used");
-            }
-        }
-    });
-    if let Some(sb) = &current {
-        ui.weak("Blank AC, Max HP, initiative and CR below fall back to the stat block. Fill them in to override.");
-        egui::CollapsingHeader::new(format!("Show stat block · {}", crate::views::statblock::summary(sb)))
-            .id_salt(("npc_sb", id))
-            .default_open(false)
-            .show(ui, |ui| {
-                ui.set_max_width(ui.available_width().min(620.0));
-                let roller = doc.c.npc(id).map(|n| n.core.display_name()).unwrap_or_default();
-                crate::views::statblock::render(ui, sb, &roller, sh, true);
+            ui_util::form_menu(ui, "Change…", |ui| {
+                if let Some(sid) = crate::views::statblock::picker(ui, doc, &mut st.sb_filter) {
+                    op = Some(Op::Replace(sb.id, sid));
+                    ui.close();
+                }
             });
+            if ui
+                .small_button("✖")
+                .on_hover_text("Stop using this stat block (it stays in the Bestiary)")
+                .clicked()
+            {
+                op = Some(Op::Remove(sb.id));
+            }
+        });
     }
-    if let Some(v) = set {
-        if let Some(n) = doc.c.npc_mut(id) {
-            n.statblock = v;
+    if !blocks.is_empty() {
+        ui.horizontal(|ui| {
+            label_cell(ui, "");
+            ui_util::form_menu(ui, "➕ Add another stat block…", |ui| {
+                if let Some(sid) = crate::views::statblock::picker(ui, doc, &mut st.sb_filter) {
+                    op = Some(Op::Add(sid));
+                    ui.close();
+                }
+            })
+            .on_hover_text("Another form, phase or version of this NPC: a druid's wild shape, a villain's second phase, a younger self. Switch between them in the combat tracker.");
+        });
+        if blocks.len() > 1 {
+            ui.weak("Blank AC, Max HP, initiative and CR below fall back to the main stat block. The other forms use their own numbers; pick one when adding this NPC to a fight, or switch mid-fight in the combat tracker.");
+        } else {
+            ui.weak("Blank AC, Max HP, initiative and CR below fall back to the stat block. Fill them in to override.");
+        }
+        let roller = doc.c.npc(id).map(|n| n.core.display_name()).unwrap_or_default();
+        for sb in &blocks {
+            let title = if blocks.len() > 1 {
+                format!("Show {} · {}", sb.name(), crate::views::statblock::summary(sb))
+            } else {
+                format!("Show stat block · {}", crate::views::statblock::summary(sb))
+            };
+            egui::CollapsingHeader::new(title)
+                .id_salt(("npc_sb", id, sb.id))
+                .default_open(false)
+                .show(ui, |ui| {
+                    ui.set_max_width(ui.available_width().min(620.0));
+                    crate::views::statblock::render(ui, sb, &roller, sh, true);
+                });
+        }
+    }
+    if let (Some(op), Some(n)) = (op, doc.c.npc_mut(id)) {
+        match op {
+            Op::Add(s) => n.add_statblock(s),
+            Op::Replace(old, new) => n.replace_statblock(old, new),
+            Op::Remove(s) => n.remove_statblock(s),
+            Op::Main(s) => n.set_main_statblock(s),
         }
     }
 }

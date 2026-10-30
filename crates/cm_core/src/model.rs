@@ -828,6 +828,76 @@ pub struct Npc {
     /// Game statistics from the bestiary. The NPC's own fields override it; blank fields
     /// fall back to the stat block.
     pub statblock: Option<Id>,
+    /// More stat blocks for the same NPC: other forms, phases or versions ("Wolf form",
+    /// "Phase 2"). These use their own numbers; the NPC's fields only override the main one.
+    /// Kept separate from `statblock` so older versions of the app still find the main one.
+    pub other_statblocks: Vec<Id>,
+}
+
+impl Npc {
+    /// Every stat block this NPC uses, main one first.
+    pub fn statblock_ids(&self) -> Vec<Id> {
+        self.statblock.into_iter().chain(self.other_statblocks.iter().copied()).collect()
+    }
+    pub fn uses_statblock(&self, id: Id) -> bool {
+        self.statblock == Some(id) || self.other_statblocks.contains(&id)
+    }
+    /// Add a stat block: the main one if there's none yet, otherwise another form.
+    pub fn add_statblock(&mut self, id: Id) {
+        if self.uses_statblock(id) {
+            return;
+        }
+        if self.statblock.is_none() {
+            self.statblock = Some(id);
+        } else {
+            self.other_statblocks.push(id);
+        }
+    }
+    /// Stop using a stat block; the next one becomes the main one if needed.
+    pub fn remove_statblock(&mut self, id: Id) {
+        self.other_statblocks.retain(|s| *s != id);
+        if self.statblock == Some(id) {
+            self.statblock = if self.other_statblocks.is_empty() {
+                None
+            } else {
+                Some(self.other_statblocks.remove(0))
+            };
+        }
+    }
+    /// Make one of the NPC's stat blocks the main one (the old main one becomes a form).
+    pub fn set_main_statblock(&mut self, id: Id) {
+        if self.statblock == Some(id) || !self.other_statblocks.contains(&id) {
+            return;
+        }
+        let pos = self.other_statblocks.iter().position(|s| *s == id).unwrap();
+        match self.statblock.replace(id) {
+            Some(old) => self.other_statblocks[pos] = old,
+            None => {
+                self.other_statblocks.remove(pos);
+            }
+        }
+    }
+    /// Replace one stat block with another in the same position.
+    pub fn replace_statblock(&mut self, old: Id, new: Id) {
+        if old == new {
+            return;
+        }
+        if self.uses_statblock(new) {
+            self.remove_statblock(old);
+        } else if self.statblock == Some(old) {
+            self.statblock = Some(new);
+        } else if let Some(s) = self.other_statblocks.iter_mut().find(|s| **s == old) {
+            *s = new;
+        }
+    }
+    /// Remove ids that fail `keep`, promoting as needed. Returns how many were removed.
+    pub fn retain_statblocks(&mut self, keep: impl Fn(Id) -> bool) -> usize {
+        let gone: Vec<Id> = self.statblock_ids().into_iter().filter(|s| !keep(*s)).collect();
+        for g in &gone {
+            self.remove_statblock(*g);
+        }
+        gone.len()
+    }
 }
 
 impl Default for Npc {
@@ -841,6 +911,7 @@ impl Default for Npc {
             role: String::new(),
             status: LifeStatus::Alive,
             statblock: None,
+            other_statblocks: Vec::new(),
         }
     }
 }
@@ -949,6 +1020,8 @@ pub struct EncounterEntry {
     pub ally: bool,
     /// When count > 1, all copies share one initiative roll.
     pub group_initiative: bool,
+    /// For an NPC with several stat blocks: which one it fights as (None = the main one).
+    pub form: Option<Id>,
 }
 
 impl Default for EncounterEntry {
@@ -963,6 +1036,7 @@ impl Default for EncounterEntry {
             ac: None,
             ally: false,
             group_initiative: true,
+            form: None,
         }
     }
 }
@@ -1200,13 +1274,50 @@ impl Campaign {
         }
     }
 
+    /// The stat block a combatant fights with: `form` when it's one of the NPC's stat
+    /// blocks, otherwise the main one (or the stat block itself).
+    pub fn statblock_as(&self, src: &CombatantSource, form: Option<Id>) -> Option<&StatBlock> {
+        if let (CombatantSource::Npc(id), Some(f)) = (src, form) {
+            if self.npc(*id).map(|n| n.uses_statblock(f)).unwrap_or(false) {
+                if let Some(sb) = self.statblock(f) {
+                    return Some(sb);
+                }
+            }
+        }
+        self.statblock_for(src)
+    }
+
+    /// True when `form` is one of an NPC's *other* stat blocks. Those use their own numbers
+    /// first (a dragon form has its own AC); the NPC's fields only fill in blanks.
+    pub fn is_other_form(&self, src: &CombatantSource, form: Option<Id>) -> bool {
+        match (src, form) {
+            (CombatantSource::Npc(id), Some(f)) => self.npc(*id).map(|n| n.other_statblocks.contains(&f)).unwrap_or(false) && self.statblock(f).is_some(),
+            _ => false,
+        }
+    }
+
+    /// AC and max HP for a combatant source fighting as `form`.
+    pub fn combat_numbers(&self, src: &CombatantSource, form: Option<Id>) -> (Option<i32>, Option<i32>) {
+        let core = self.core_for(src);
+        let sb = self.statblock_as(src, form).map(|s| &s.core);
+        let pick = |own: Option<i32>, block: Option<i32>| if self.is_other_form(src, form) { block.or(own) } else { own.or(block) };
+        (
+            pick(core.and_then(|c| c.ac), sb.and_then(|c| c.ac)),
+            pick(core.and_then(|c| c.max_hp), sb.and_then(|c| c.max_hp)),
+        )
+    }
+
     /// Initiative modifier for a source, falling back from the NPC to its stat block.
     pub fn initiative_source_for(&self, src: &CombatantSource) -> Option<InitSource> {
+        self.initiative_source_as(src, None)
+    }
+    pub fn initiative_source_as(&self, src: &CombatantSource, form: Option<Id>) -> Option<InitSource> {
         let core = self.core_for(src)?;
         let own = core.initiative_source();
-        if own == InitSource::None {
-            if let (CombatantSource::Npc(_), Some(sb)) = (src, self.statblock_for(src)) {
-                return Some(sb.core.initiative_source());
+        if let (CombatantSource::Npc(_), Some(sb)) = (src, self.statblock_as(src, form)) {
+            let block = sb.core.initiative_source();
+            if own == InitSource::None || (self.is_other_form(src, form) && block != InitSource::None) {
+                return Some(block);
             }
         }
         Some(own)
@@ -1214,8 +1325,12 @@ impl Campaign {
 
     /// Challenge rating, falling back from the NPC to its stat block.
     pub fn cr_for(&self, src: &CombatantSource) -> Option<String> {
+        self.cr_as(src, None)
+    }
+    pub fn cr_as(&self, src: &CombatantSource, form: Option<Id>) -> Option<String> {
         let own = self.core_for(src).map(|c| c.cr.trim().to_string()).filter(|c| !c.is_empty());
-        own.or_else(|| self.statblock_for(src).map(|s| s.core.cr.trim().to_string()).filter(|c| !c.is_empty()))
+        let block = self.statblock_as(src, form).map(|s| s.core.cr.trim().to_string()).filter(|c| !c.is_empty());
+        if self.is_other_form(src, form) { block.or(own) } else { own.or(block) }
     }
 
     /// Character data for a combatant source (PC or NPC).
@@ -1387,7 +1502,7 @@ impl Campaign {
         }
         for n in &self.npcs {
             let via_faction = matches!(target, Link::Faction(f) if n.factions.contains(f));
-            let via_statblock = matches!(target, Link::StatBlock(s) if n.statblock == Some(*s));
+            let via_statblock = matches!(target, Link::StatBlock(s) if n.uses_statblock(*s));
             if n.core.links.contains(target) || via_faction || via_statblock {
                 out.push(EntityRef {
                     link: Link::Npc(n.id),
@@ -1487,12 +1602,22 @@ impl Campaign {
             Link::StatBlock(id) => {
                 self.statblocks.retain(|c| c.id != *id);
                 for n in &mut self.npcs {
-                    if n.statblock == Some(*id) {
-                        n.statblock = None;
-                    }
+                    n.remove_statblock(*id);
                 }
                 for e in &mut self.encounters {
                     e.entries.retain(|en| en.source != CombatantSource::StatBlock(*id));
+                    for en in &mut e.entries {
+                        if en.form == Some(*id) {
+                            en.form = None;
+                        }
+                    }
+                }
+                if let Some(r) = &mut self.active_encounter {
+                    for c in &mut r.combatants {
+                        if c.form == Some(*id) {
+                            c.form = None;
+                        }
+                    }
                 }
             }
             Link::Item(id) => self.items.retain(|c| c.id != *id),

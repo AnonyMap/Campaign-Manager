@@ -86,7 +86,7 @@ fn encounter_crs(doc: &Doc, src: EncSource) -> (Vec<f32>, usize, String) {
             let Some(e) = doc.c.encounter(id) else { return (crs, 0, String::new()) };
             name = e.name.clone();
             for en in e.entries.iter().filter(|en| !en.ally && !matches!(en.source, CombatantSource::Player(_))) {
-                match doc.c.cr_for(&en.source).and_then(|c| loot::cr_number(&c)) {
+                match doc.c.cr_as(&en.source, en.form).and_then(|c| loot::cr_number(&c)) {
                     Some(c) => crs.extend(std::iter::repeat_n(c, en.count.max(1) as usize)),
                     None => unknown += en.count.max(1) as usize,
                 }
@@ -96,7 +96,7 @@ fn encounter_crs(doc: &Doc, src: EncSource) -> (Vec<f32>, usize, String) {
             let Some(r) = &doc.c.active_encounter else { return (crs, 0, String::new()) };
             name = r.name.clone();
             for c in r.combatants.iter().filter(|c| !c.friendly()) {
-                match doc.c.cr_for(&c.source).and_then(|c| loot::cr_number(&c)) {
+                match doc.c.cr_as(&c.source, c.form).and_then(|c| loot::cr_number(&c)) {
                     Some(x) => crs.push(x),
                     None => unknown += 1,
                 }

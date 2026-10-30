@@ -524,11 +524,12 @@ fn side(ui: &mut egui::Ui, doc: &mut Doc, sh: &mut Shared, st: &mut State, sid: 
         ui.horizontal_wrapped(|ui| {
             let detail = match &l {
                 Link::Npc(id) => doc.c.npc(*id).map(|n| {
-                    let sb = n
-                        .statblock
-                        .and_then(|s| doc.c.statblock(s))
+                    let sb: String = n
+                        .statblock_ids()
+                        .iter()
+                        .filter_map(|s| doc.c.statblock(*s))
                         .map(|s| format!(" · {}", s.name()))
-                        .unwrap_or_default();
+                        .collect();
                     format!("{}{sb}", n.role)
                 }),
                 Link::Player(id) => doc.c.player(*id).map(|p| p.player_name.clone()),
