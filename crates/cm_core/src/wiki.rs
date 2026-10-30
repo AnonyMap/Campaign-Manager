@@ -497,6 +497,65 @@ fn snippet(body: &str, word: &str, width: usize) -> String {
 
 /// Turn `[[Target|Label]]` into Markdown links with a custom scheme, so a renderer can
 /// make them clickable: `[Label](wiki:Target)`.
+/// Show each line break as a line break (as Obsidian and the formatted editor do) rather than
+/// joining the lines into one paragraph, the strict Markdown rule. A plain line right after a
+/// list or quote starts a new paragraph instead of being swallowed by the last item.
+/// Code blocks are left alone.
+pub fn hard_line_breaks(text: &str) -> String {
+    #[derive(PartialEq, Clone, Copy)]
+    enum Kind {
+        Blank,
+        List,
+        Quote,
+        Other,
+    }
+    fn kind(line: &str, prev: Kind) -> Kind {
+        let t = line.trim_start();
+        let indent = line.len() - t.len();
+        if t.is_empty() {
+            return Kind::Blank;
+        }
+        if prev == Kind::List && indent >= 2 {
+            return Kind::List; // indented continuation of an item
+        }
+        let d = t.bytes().take_while(|b| b.is_ascii_digit()).count();
+        if t.starts_with("- ") || t.starts_with("* ") || t.starts_with("+ ") || (d > 0 && (t[d..].starts_with(". ") || t[d..].starts_with(") "))) {
+            Kind::List
+        } else if t.starts_with('>') {
+            Kind::Quote
+        } else {
+            Kind::Other
+        }
+    }
+    let mut out = String::with_capacity(text.len() + 64);
+    let mut in_fence = false;
+    let lines: Vec<&str> = text.split('\n').collect();
+    let mut prev = Kind::Blank;
+    for (i, line) in lines.iter().enumerate() {
+        let t = line.trim_start();
+        let fence_line = t.starts_with("```") || t.starts_with("~~~");
+        if fence_line {
+            in_fence = !in_fence;
+        }
+        let k = kind(line, prev);
+        out.push_str(line);
+        if i + 1 < lines.len() {
+            let next = lines[i + 1];
+            let nk = kind(next, k);
+            if !in_fence && !fence_line && k != Kind::Blank && nk != Kind::Blank {
+                if k != nk && (k != Kind::Other || nk != Kind::Other) {
+                    out.push('\n'); // leaving or entering a list / quote: new paragraph
+                } else if !line.ends_with("  ") && !line.ends_with('\\') && !t.starts_with('|') && !t.starts_with('#') {
+                    out.push_str("  ");
+                }
+            }
+            out.push('\n');
+        }
+        prev = k;
+    }
+    out
+}
+
 pub fn wikilinks_to_markdown(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     let mut rest = text;
@@ -998,5 +1057,16 @@ mod tests {
         assert_eq!(wikilinks_to_markdown("unclosed [[x"), "unclosed [[x");
         assert_eq!(decode_target(&encode_target("A (b) 100%")), "A (b) 100%");
         assert_eq!(extract_wikilinks("[[A#Heading|x]] [[B]]"), vec!["A", "B"]);
+    }
+
+    #[test]
+    fn single_newlines_become_breaks() {
+        assert_eq!(hard_line_breaks("one\ntwo\n\nthree"), "one  \ntwo\n\nthree");
+        assert_eq!(hard_line_breaks("```\na\nb\n```\nx"), "```\na\nb\n```\nx");
+        assert_eq!(hard_line_breaks("| a |\n| - |"), "| a |\n| - |");
+        // a plain line after a list is its own paragraph, not part of the last item
+        assert_eq!(hard_line_breaks("- a\n- b\nafter"), "- a  \n- b\n\nafter");
+        assert_eq!(hard_line_breaks("text\n- item"), "text\n\n- item");
+        assert_eq!(hard_line_breaks("> q\nnext"), "> q\n\nnext");
     }
 }

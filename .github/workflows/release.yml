@@ -1,5 +1,9 @@
 name: Build & release
 
+# Builds the deliverables on native runners:
+#   Linux AppImage, macOS universal .dmg, Windows portable .zip, and the source tarball.
+# Push a tag like v0.1.0 to publish a GitHub release; any push/PR just builds and tests.
+
 on:
   push:
     branches: [main]

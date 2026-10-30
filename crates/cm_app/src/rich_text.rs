@@ -66,6 +66,8 @@ struct Fx {
     bullet: bool,
     /// The text of a ticked checklist item.
     done: bool,
+    /// Drawn over when the line isn't being edited: 1 = bullet "•", 2 = checkbox.
+    deco: u8,
 }
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -144,20 +146,32 @@ fn parse_line(line: &str, in_fence: &mut bool) -> (Block, Vec<(Range<usize>, Fx)
             )],
         );
     } else if let Some(rest) = ["- ", "* ", "+ "].iter().find_map(|b| trimmed.strip_prefix(b)) {
-        let mut len = indent + 2;
         let lower = rest.get(..4).map(|s| s.to_ascii_lowercase());
-        if lower.as_deref() == Some("[ ] ") || lower.as_deref() == Some("[x] ") {
-            len += 4;
-            base.done = lower.as_deref() == Some("[x] ");
+        let bullet = Fx {
+            bullet: true,
+            ..Default::default()
+        };
+        if indent > 0 {
+            out.push((0..indent, bullet));
         }
-        start = len;
-        out.push((
-            0..start,
-            Fx {
-                bullet: true,
-                ..Default::default()
-            },
-        ));
+        if lower.as_deref() == Some("[ ] ") || lower.as_deref() == Some("[x] ") {
+            // "- " hidden like a mark, "[ ]" drawn as a checkbox
+            base.done = lower.as_deref() == Some("[x] ");
+            out.push((
+                indent..indent + 2,
+                Fx {
+                    marker: true,
+                    ..Default::default()
+                },
+            ));
+            out.push((indent + 2..indent + 5, Fx { deco: 2, ..bullet }));
+            out.push((indent + 5..indent + 6, bullet));
+            start = indent + 6;
+        } else {
+            out.push((indent..indent + 1, Fx { deco: 1, ..bullet }));
+            out.push((indent + 1..indent + 2, bullet));
+            start = indent + 2;
+        }
     } else {
         let digits = trimmed.bytes().take_while(|b| b.is_ascii_digit()).count();
         if digits > 0 && (trimmed[digits..].starts_with(". ") || trimmed[digits..].starts_with(") ")) {
@@ -284,16 +298,17 @@ fn inline(line: &str, from: usize, base: Fx, out: &mut Vec<(Range<usize>, Fx)>) 
 // Layout
 // ---------------------------------------------------------------------------
 
+/// Extra space after each paragraph (line), as a fraction of the text size.
+const PARA_GAP: f32 = 0.35;
+
 /// Lay out `text` with formatting. Lines whose char range touches `reveal` show their marks.
 fn layout(ui: &Ui, text: &str, wrap: f32, reveal: Option<Range<usize>>) -> LayoutJob {
     let v = ui.visuals();
     let body = egui::TextStyle::Body.resolve(ui.style());
     let mono = egui::TextStyle::Monospace.resolve(ui.style());
     let bold_fam = bold(ui.ctx());
-    let mut job = LayoutJob {
-        text: text.to_owned(),
-        ..Default::default()
-    };
+    // (empty to start with: `append` adds the text piece by piece)
+    let mut job = LayoutJob::default();
     job.wrap.max_width = wrap;
     let mut in_fence = false;
     let mut byte = 0;
@@ -343,6 +358,13 @@ fn layout(ui: &Ui, text: &str, wrap: f32, reveal: Option<Range<usize>>) -> Layou
                 f.font_id = FontId::new(size, body.family.clone());
                 f.strikethrough = Stroke::NONE;
             }
+            if fx.deco == 2 {
+                // a checkbox is drawn over "[ ]", which needs a little room
+                f.font_id = FontId::new(mono.size, mono.family.clone());
+            }
+            if fx.deco != 0 && !shown {
+                f.color = Color32::TRANSPARENT;
+            }
             if fx.marker {
                 if shown {
                     f.color = v.weak_text_color().gamma_multiply(0.8);
@@ -358,7 +380,25 @@ fn layout(ui: &Ui, text: &str, wrap: f32, reveal: Option<Range<usize>>) -> Layou
                     f.strikethrough = Stroke::NONE;
                 }
             }
-            job.append(&line[r.clone()], 0.0, f);
+            // every format sits at the top of its row, so the extra height given to a line's
+            // last character (below) becomes a small gap after the paragraph
+            f.valign = egui::Align::TOP;
+            let piece = &line[r.clone()];
+            if r.end == line.len() && raw.ends_with('\n') && block != Block::Code && !piece.is_empty() {
+                // split off the last character to carry the paragraph gap
+                let last = piece.char_indices().last().map(|(i, _)| i).unwrap_or(0);
+                if last > 0 {
+                    job.append(&piece[..last], 0.0, f.clone());
+                }
+                let mut g = f.clone();
+                // measured with the line's own text size (the last character may be a tiny
+                // hidden mark)
+                let row = ui.fonts_mut(|fo| fo.row_height(&FontId::new(size, body.family.clone())));
+                g.line_height = Some(row + body.size * PARA_GAP);
+                job.append(&piece[last..], 0.0, g);
+            } else {
+                job.append(piece, 0.0, f);
+            }
         }
         if raw.ends_with('\n') {
             job.append(
@@ -668,6 +708,85 @@ pub fn shortcuts(ui: &Ui, id: egui::Id, text: &mut String) -> bool {
     b || i
 }
 
+/// Bullets and checkboxes to draw: (char range, kind, ticked, char range of the line).
+fn decorations(text: &str) -> Vec<(Range<usize>, u8, bool, Range<usize>)> {
+    let mut out = Vec::new();
+    let mut in_fence = false;
+    let mut chr = 0;
+    for raw in text.split_inclusive('\n') {
+        let line = raw.strip_suffix('\n').unwrap_or(raw);
+        let n = raw.chars().count();
+        let (_, spans) = parse_line(line, &mut in_fence);
+        for (r, fx) in spans {
+            if fx.deco != 0 {
+                let a = chr + line[..r.start].chars().count();
+                let b = chr + line[..r.end].chars().count();
+                let done = fx.deco == 2 && line[r.clone()].to_ascii_lowercase() == "[x]";
+                out.push((a..b, fx.deco, done, chr..chr + n));
+            }
+        }
+        chr += n;
+    }
+    out
+}
+
+/// What Enter should do on a list line: continue the list ("- ", "2. ", "- [ ] ") or, on an
+/// empty item, end it. Returns (text to insert at the cursor, bytes to delete before it).
+fn enter_in_list(text: &str, cursor: usize) -> Option<(String, usize)> {
+    let line_start = text[..cursor].rfind('\n').map(|i| i + 1).unwrap_or(0);
+    let line_end = text[cursor..].find('\n').map(|i| cursor + i).unwrap_or(text.len());
+    let line = &text[line_start..line_end];
+    let t = line.trim_start();
+    let indent = &line[..line.len() - t.len()];
+    let prefix: String = if let Some(p) = ["- [ ] ", "- [x] ", "- [X] "].iter().find(|p| t.starts_with(**p)) {
+        let _ = p;
+        format!("{indent}- [ ] ")
+    } else if let Some(p) = ["- ", "* ", "+ ", "> "].iter().find(|p| t.starts_with(**p)) {
+        format!("{indent}{p}")
+    } else {
+        let d = t.bytes().take_while(|b| b.is_ascii_digit()).count();
+        if d > 0 && (t[d..].starts_with(". ") || t[d..].starts_with(") ")) {
+            let n: u64 = t[..d].parse().unwrap_or(0);
+            format!("{indent}{}{}", n + 1, &t[d..d + 2])
+        } else {
+            return None;
+        }
+    };
+    let own_prefix_len = line.len() - strip_prefix(line).1.len();
+    if line[own_prefix_len..].trim().is_empty() && cursor >= line_start + own_prefix_len {
+        // empty item: end the list (remove the bullet), like a word processor
+        return Some((String::new(), cursor - line_start));
+    }
+    if cursor < line_start + own_prefix_len {
+        return None; // cursor inside the bullet itself: plain newline
+    }
+    Some((format!("\n{prefix}"), 0))
+}
+
+/// Indent (or outdent) the list item the cursor is on by two spaces. None if not a list line.
+fn indent_list_item(text: &mut String, sel: Range<usize>, indent: bool) -> Option<Range<usize>> {
+    let line_start = text[..sel.start].rfind('\n').map(|i| i + 1).unwrap_or(0);
+    let line_end = text[sel.start..].find('\n').map(|i| sel.start + i).unwrap_or(text.len());
+    let line = &text[line_start..line_end];
+    let t = line.trim_start();
+    let d = t.bytes().take_while(|b| b.is_ascii_digit()).count();
+    let is_list = ["- ", "* ", "+ "].iter().any(|p| t.starts_with(p)) || (d > 0 && (t[d..].starts_with(". ") || t[d..].starts_with(") ")));
+    if !is_list {
+        return None;
+    }
+    if indent {
+        text.insert_str(line_start, "  ");
+        Some(sel.start + 2..sel.end + 2)
+    } else {
+        let spaces = (line.len() - t.len()).min(2);
+        if spaces == 0 {
+            return Some(sel);
+        }
+        text.replace_range(line_start..line_start + spaces, "");
+        Some(sel.start.saturating_sub(spaces).max(line_start)..sel.end.saturating_sub(spaces).max(line_start))
+    }
+}
+
 /// The formatted text box.
 pub fn formatted_edit(ui: &mut Ui, id: egui::Id, text: &mut String, rows: usize, hint: &str) -> egui::Response {
     let focused = ui.ctx().memory(|m| m.has_focus(id));
@@ -679,18 +798,136 @@ pub fn formatted_edit(ui: &mut Ui, id: egui::Id, text: &mut String, rows: usize,
     } else {
         None
     };
+    // Enter on a list line continues the list (or ends it on an empty item)
+    let mut list_enter = false;
+    if focused && ui.input(|i| i.key_pressed(egui::Key::Enter) && i.modifiers.is_none()) {
+        let sel = selection(ui.ctx(), id, text);
+        if sel.is_empty() {
+            if let Some((insert, delete)) = enter_in_list(text, sel.start) {
+                ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter));
+                let at = sel.start - delete;
+                text.replace_range(at..sel.start, &insert);
+                let end = at + insert.len();
+                set_selection(ui.ctx(), id, text, end..end);
+                list_enter = true;
+            }
+        }
+    }
+    // Tab / Shift+Tab on a list line indents / outdents the item (nested lists)
+    if focused && !list_enter {
+        let (tab, shift) = ui.input(|i| (i.key_pressed(egui::Key::Tab), i.modifiers.shift));
+        if tab {
+            let sel = selection(ui.ctx(), id, text);
+            if let Some(new_sel) = indent_list_item(text, sel.clone(), !shift) {
+                ui.input_mut(|i| {
+                    i.consume_key(egui::Modifiers::NONE, egui::Key::Tab);
+                    i.consume_key(egui::Modifiers::SHIFT, egui::Key::Tab);
+                });
+                set_selection(ui.ctx(), id, text, new_sel);
+                list_enter = true;
+            } else {
+                // elsewhere a tab would start a Markdown code block: ignore it
+                ui.input_mut(|i| {
+                    i.consume_key(egui::Modifiers::NONE, egui::Key::Tab);
+                    i.consume_key(egui::Modifiers::SHIFT, egui::Key::Tab);
+                });
+            }
+        }
+    }
+    let reveal = if list_enter {
+        Some(selection(ui.ctx(), id, text)).map(|r| byte_to_char(text, r.start)..byte_to_char(text, r.end))
+    } else {
+        reveal
+    };
     let mut layouter = |ui: &Ui, buf: &dyn egui::TextBuffer, wrap: f32| -> Arc<egui::Galley> {
         let job = layout(ui, buf.as_str(), wrap, reveal.clone());
         ui.fonts_mut(|f| f.layout_job(job))
     };
-    ui.add(
-        egui::TextEdit::multiline(text)
-            .id(id)
-            .desired_rows(rows)
-            .desired_width(f32::INFINITY)
-            .hint_text(hint)
-            .layouter(&mut layouter),
-    )
+    let mut out = egui::TextEdit::multiline(text)
+        .id(id)
+        .lock_focus(true)
+        .desired_rows(rows)
+        .desired_width(f32::INFINITY)
+        .hint_text(hint)
+        .layouter(&mut layouter)
+        .show(ui);
+    if list_enter {
+        out.response.mark_changed();
+    }
+    // draw bullets and checkboxes on lines that aren't being edited
+    let now_focused = ui.ctx().memory(|m| m.has_focus(id));
+    let shown = if now_focused {
+        out.cursor_range.map(|r| r.as_sorted_char_range())
+    } else {
+        None
+    };
+    let decos = decorations(text);
+    let painter = ui.painter_at(out.text_clip_rect);
+    let v = ui.visuals().clone();
+    let mut toggle: Option<usize> = None;
+    let clicked_at = if out.response.clicked() {
+        out.cursor_range.map(|r| r.primary.index)
+    } else {
+        None
+    };
+    for (chars, kind, done, line) in &decos {
+        // a click on a checkbox ticks it
+        if *kind == 2 {
+            if let Some(c) = clicked_at {
+                if c >= chars.start && c <= chars.end {
+                    toggle = Some(chars.start + 1);
+                }
+            }
+        }
+        let editing = shown.as_ref().map(|r| r.start <= line.end && r.end >= line.start).unwrap_or(false);
+        if editing {
+            continue;
+        }
+        let a = out.galley.pos_from_cursor(CCursor::new(chars.start)).translate(out.galley_pos.to_vec2());
+        let b = out.galley.pos_from_cursor(CCursor::new(chars.end)).translate(out.galley_pos.to_vec2());
+        // the row may include the paragraph gap below the text: centre on the text itself
+        let text_h = ui.fonts_mut(|f| f.row_height(&egui::TextStyle::Body.resolve(ui.style())));
+        let rect = egui::Rect::from_min_max(a.min, egui::pos2(b.max.x, a.min.y + text_h.min(a.height())));
+        if *kind == 1 {
+            // nested items get a hollow bullet, as in Preview
+            let nested = chars.start > line.start;
+            let r = (rect.height() * 0.13).max(2.0);
+            if nested {
+                painter.circle_stroke(rect.center(), r, Stroke::new(1.0_f32, v.text_color()));
+            } else {
+                painter.circle_filled(rect.center(), r, v.text_color());
+            }
+        } else {
+            let side = (rect.height() * 0.62).min(rect.width());
+            let bx = egui::Rect::from_center_size(rect.center(), egui::vec2(side, side));
+            let stroke = Stroke::new(1.3_f32, if *done { v.hyperlink_color } else { v.weak_text_color() });
+            painter.rect(
+                bx,
+                2.0,
+                if *done {
+                    v.hyperlink_color.gamma_multiply(0.25)
+                } else {
+                    Color32::TRANSPARENT
+                },
+                stroke,
+                egui::StrokeKind::Inside,
+            );
+            if *done {
+                let p = |x: f32, y: f32| bx.min + egui::vec2(bx.width() * x, bx.height() * y);
+                painter.line_segment([p(0.22, 0.52), p(0.43, 0.74)], Stroke::new(1.8_f32, v.hyperlink_color));
+                painter.line_segment([p(0.43, 0.74), p(0.8, 0.27)], Stroke::new(1.8_f32, v.hyperlink_color));
+            }
+        }
+    }
+    if let Some(ci) = toggle {
+        let b = char_to_byte(text, ci);
+        if let Some(ch) = text[b..].chars().next() {
+            let new = if ch == ' ' { "x" } else { " " };
+            text.replace_range(b..b + ch.len_utf8(), new);
+            out.response.mark_changed();
+        }
+    }
+    out.response
 }
 
 #[cfg(test)]
@@ -775,5 +1012,39 @@ mod tests {
         let mut t = "the Baron".to_string();
         apply(&mut t, 4..9, Cmd::Link);
         assert_eq!(t, "the [[Baron]]");
+    }
+
+    #[test]
+    fn enter_continues_lists() {
+        let t = "- one";
+        assert_eq!(enter_in_list(t, t.len()), Some(("\n- ".to_string(), 0)));
+        let t = "  3. three";
+        assert_eq!(enter_in_list(t, t.len()), Some(("\n  4. ".to_string(), 0)));
+        let t = "- [x] done";
+        assert_eq!(enter_in_list(t, t.len()), Some(("\n- [ ] ".to_string(), 0)));
+        // an empty item ends the list
+        let t = "- one\n- ";
+        assert_eq!(enter_in_list(t, t.len()), Some((String::new(), 2)));
+        assert_eq!(enter_in_list("plain text", 10), None);
+        assert_eq!(enter_in_list("## Heading", 10), None);
+    }
+
+    #[test]
+    fn bullets_and_boxes_are_found() {
+        let d = decorations("intro\n- a\n- [x] b\n```\n- not\n```");
+        assert_eq!(d.len(), 2);
+        assert_eq!((d[0].0.clone(), d[0].1), (6..7, 1));
+        assert_eq!((d[1].0.clone(), d[1].1, d[1].2), (12..15, 2, true));
+    }
+
+    #[test]
+    fn tab_nests_list_items() {
+        let mut t = "- a\n- b".to_string();
+        let r = indent_list_item(&mut t, 7..7, true).unwrap();
+        assert_eq!(t, "- a\n  - b");
+        assert_eq!(r, 9..9);
+        indent_list_item(&mut t, 9..9, false).unwrap();
+        assert_eq!(t, "- a\n- b");
+        assert!(indent_list_item(&mut "plain".to_string(), 2..2, true).is_none());
     }
 }

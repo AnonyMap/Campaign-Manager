@@ -32,7 +32,7 @@ pub fn render_markdown(ui: &mut Ui, cache: &mut CommonMarkCache, text: &str) {
         ui.weak("(empty)");
         return;
     }
-    let converted = cm_core::wiki::wikilinks_to_markdown(text);
+    let converted = cm_core::wiki::wikilinks_to_markdown(&cm_core::wiki::hard_line_breaks(text));
     // egui_commonmark lays text out at max(max_image_width, available width), so a fixed
     // image width wider than the column makes every paragraph overflow. Keep it in bounds.
     let w = ui.available_width().max(60.0);
