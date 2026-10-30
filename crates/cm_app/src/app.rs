@@ -372,6 +372,9 @@ pub struct App {
 impl App {
     pub fn new(cc: &eframe::CreationContext<'_>, open_path: Option<PathBuf>) -> Self {
         egui_extras::install_image_loaders(&cc.egui_ctx);
+        // tried first: shrinks images too big for the graphics card instead of crashing
+        cc.egui_ctx
+            .add_image_loader(std::sync::Arc::new(crate::image_loader::FitImageLoader::default()));
         let settings = AppSettings::load();
         let mut app = App {
             settings,

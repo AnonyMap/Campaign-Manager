@@ -18,7 +18,7 @@ themes, your own saved themes, and adjustable fonts.
 | **Ideas pile** | Cards stay in the pile until you assign them (or untick it). Placing a card on a map doesn't remove it from the pile — it's "and/or". |
 | **Plot line** | Grid of plot threads × sessions (or real/in-world months). Drag cards between cells to change thread or target session. "+ card" in any cell. |
 | **Places** | Towns, inns, shops, temples, dungeons — any kind you type. Places nest (a shop *in* a town) and list their NPCs, factions and related places. 🎲 **Name** suggests names for the kind of place (inns, shops by trade, temples, dungeons, keeps, guilds, wilds, towns); add a name pool in Settings named after a kind (e.g. “Inn”) to mix in your own. Any place can become a **story card** for the plot line and story board. Shops get **generated wares** by theme (general store, blacksmith, alchemist/potions, magic, scribe, fletcher, jeweler, temple, tavern menu) and quality (poor / average / fine), with prices you can edit and a **Sell to…** button that takes the price from the character's purse. |
-| **Maps** | Upload a map image (browse, paste a path, or drag the file onto the window). Pin cards, drag pins, scroll-zoom, pan. |
+| **Maps** | Upload a map image (browse, paste a path, or drag the file onto the window). Pin cards, drag pins, scroll-zoom, pan. Any size works: images bigger than your graphics card can show (or over 8192 pixels on a side) are shrunk for display; the file itself isn't changed, and pins stay put. |
 | **Sessions** | Session planner: narrative (Markdown), running order of cards, encounters (with Run buttons), recap, links. |
 | **Plot threads** | Storylines with status (open / dormant / resolved / abandoned) and progress. |
 | **Player characters** | Player name, character name, portrait, class/level, AC, HP, initiative mod, ability scores, passive Perception, custom rolls, character-sheet images, Markdown notes, extra fields. |
@@ -82,7 +82,7 @@ config folder, separate from campaigns.
 Requires Rust 1.88+.
 
 ```sh
-cargo test --workspace                     # 122 tests
+cargo test --workspace                     # 123 tests
 cargo run --release -p campaign-manager    # run the app
 cargo run -p cm_core --example make_sample -- "/tmp/Sample"   # write the sample campaign
 ```
