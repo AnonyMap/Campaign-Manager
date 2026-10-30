@@ -40,32 +40,50 @@ pub fn render_markdown(ui: &mut Ui, cache: &mut CommonMarkCache, text: &str) {
     CommonMarkViewer::new().max_image_width(Some(img)).show(ui, cache, &converted);
 }
 
-/// A markdown field with Edit / Preview / Split modes (mode remembered per field).
+/// A text field stored as Markdown. "Write" edits it formatted (bold shows bold, marks hidden
+/// except on the cursor's line, toolbar + Ctrl+B / Ctrl+I) or as plain Markdown, depending
+/// on the "Markdown" toggle; "Preview" renders it fully (images, tables); "Split" shows both.
+/// The mode is remembered per field.
 pub fn markdown_editor(ui: &mut Ui, id_salt: impl std::hash::Hash, text: &mut String, cache: &mut CommonMarkCache, rows: usize) -> bool {
+    use crate::rich_text;
     let id = ui.make_persistent_id(("md", id_salt));
+    let formatted = !rich_text::show_markdown();
     let mut mode = ui
         .data(|d| d.get_temp::<MdMode>(id))
-        .unwrap_or(if text.trim().is_empty() { MdMode::Edit } else { MdMode::Preview });
+        .unwrap_or(if text.trim().is_empty() || formatted { MdMode::Edit } else { MdMode::Preview });
     let mut changed = false;
-    ui.horizontal(|ui| {
-        ui.selectable_value(&mut mode, MdMode::Edit, "Edit");
-        ui.selectable_value(&mut mode, MdMode::Preview, "Preview");
-        ui.selectable_value(&mut mode, MdMode::Split, "Split");
-        ui.add(egui::Label::new(RichText::new("Markdown · [[Name]] links to cards, NPCs or wiki pages").weak()).truncate());
-    });
     // An explicit id: egui keeps a text box's undo history by id, and without one every
     // record's editor would share it (Ctrl+Z could paste another card's text in here).
     let te_id = id.with("te");
+    ui.horizontal(|ui| {
+        ui.selectable_value(&mut mode, MdMode::Edit, "Write");
+        ui.selectable_value(&mut mode, MdMode::Preview, "Preview");
+        ui.selectable_value(&mut mode, MdMode::Split, "Split");
+        let hint = if formatted {
+            "Ctrl+B bold · Ctrl+I italic · [[Name]] links to cards, NPCs or wiki pages"
+        } else {
+            "Markdown · [[Name]] links to cards, NPCs or wiki pages"
+        };
+        ui.add(egui::Label::new(RichText::new(hint).weak()).truncate());
+    });
     let edit = |ui: &mut Ui, text: &mut String| -> bool {
-        ui.add(
-            egui::TextEdit::multiline(text)
-                .id(te_id)
-                .desired_rows(rows)
-                .desired_width(f32::INFINITY)
-                .font(egui::TextStyle::Monospace)
-                .hint_text("Write anything here…"),
-        )
-        .changed()
+        let mut changed = rich_text::toolbar(ui, te_id, text);
+        changed |= rich_text::shortcuts(ui, te_id, text);
+        rich_text::keep_focus(ui.ctx(), te_id);
+        let resp = if rich_text::show_markdown() {
+            ui.add(
+                egui::TextEdit::multiline(text)
+                    .id(te_id)
+                    .desired_rows(rows)
+                    .desired_width(f32::INFINITY)
+                    .font(egui::TextStyle::Monospace)
+                    .hint_text("Write anything here…"),
+            )
+        } else {
+            rich_text::formatted_edit(ui, te_id, text, rows, "Write anything here…")
+        };
+        rich_text::remember_selection(ui.ctx(), te_id);
+        changed | resp.changed()
     };
     match mode {
         MdMode::Edit => changed |= edit(ui, text),

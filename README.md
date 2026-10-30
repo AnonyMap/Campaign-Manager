@@ -6,7 +6,7 @@ themes, your own saved themes, and adjustable fonts.
 
 *Working title — the name may change.*
 
-## What it does (v0.4.0)
+## What it does (v0.4.1)
 
 | Area | What you can do |
 |---|---|
@@ -33,6 +33,7 @@ themes, your own saved themes, and adjustable fonts.
 | **Dice roller** | Always-available side panel (Ctrl+D), 5etools-style syntax (below), history with reroll, colour-coded dice, macros, and **save any roll to a character** — either with `@Name` in the roll or the "Save to…" button on any history entry. |
 | **Campaign wiki** | Point at an Obsidian vault: folder tree, tag list, full-text search (`tag:x`, `path:y`), rendered notes with working `[[links]]` and aliases, backlinks, edit & save (warns before throwing away unsaved edits, and before overwriting a note changed in Obsidian meanwhile), create notes, open in Obsidian. Export cards (with quest details), NPCs and PCs (with inventory), factions, encounters and places (with shop stock) as notes (re-exporting updates the same note). A vault inside the campaign folder is stored as a relative path, so the campaign can move. |
 | **Import / export** | **File › Import / export** (also on the Overview): **New campaign from this one** — same world, new story; **Export** all or part of a campaign to a `.cmpack` file; **Import** all or part of a package, or straight from another campaign's folder, into this campaign; **New campaign from a file**. Pick parts with checkboxes (story & quests, sessions, encounters, PCs, NPCs, factions, places & shops, items, bestiary, maps, calendar/name pools/conditions/macros) or a preset: *Everything*, *Campaign setting* (the world without the story, encounters or PCs), *Reference library* (items, bestiary, rules), *The party*. Images come along. Things that came from the same campaign are recognised: keep yours, replace them, or keep both. Links to things you leave out are dropped. An import can be undone. Dropping a `.cmpack` file on the window opens the import. |
+| **Writing** | Every notes / description field has a **formatted** editor: bold looks bold, headings look like headings, lists and checklists line up, `[[links]]` show as links — with a toolbar (bold, italic, strikethrough, headings, bullet / numbered / check lists, quote, link, code) and Ctrl+B / Ctrl+I. Underneath it's still Markdown: the marks show on the line you're editing, and ticking **Markdown** on the toolbar (or Settings › Appearance › Writing) switches to a plain Markdown text box. **Preview** shows the full rendering with images and tables. |
 | **Everywhere** | Global search (Ctrl+F) across cards, quests, people, places, items and stat blocks; undo/redo of any change (Ctrl+Z / Ctrl+Shift+Z or Ctrl+Y when not typing; bursts of typing are one step, dice rolls aren't undone); autosave that retries if the disk or a sync app blocks it, and asks before quitting with unsaved changes; drag-and-drop images. |
 
 ### Dice syntax
@@ -81,7 +82,7 @@ config folder, separate from campaigns.
 Requires Rust 1.88+.
 
 ```sh
-cargo test --workspace                     # 110 tests
+cargo test --workspace                     # 113 tests
 cargo run --release -p campaign-manager    # run the app
 cargo run -p cm_core --example make_sample -- "/tmp/Sample"   # write the sample campaign
 ```
@@ -158,5 +159,8 @@ System Reference Document 5.2. This work includes material from the System Refer
 licensed under the Creative Commons Attribution 4.0 International License, available at
 https://creativecommons.org/licenses/by/4.0/legalcode. Monster and item data structured by the
 [Open5e](https://open5e.com) project.
+
+The bold face used in formatted text is Ubuntu Bold, under the Ubuntu Font Licence
+(`crates/cm_app/assets/UFL.txt`), like the Ubuntu Light font built into egui.
 
 License: MIT.

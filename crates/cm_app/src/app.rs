@@ -1618,6 +1618,12 @@ impl eframe::App for App {
                 .toast("The system file dialog failed to open — paste a path instead, or drag the file onto the window.");
         }
         ui_util::set_date_prefs(ctx, self.settings.week_start, self.settings.date_style);
+        // "Markdown" toggle in the text editors <-> the saved setting
+        if crate::rich_text::take_pref_changed() {
+            self.settings.markdown_source = crate::rich_text::show_markdown();
+        } else {
+            crate::rich_text::set_show_markdown(self.settings.markdown_source);
+        }
         self.shortcuts(ctx);
         self.handle_dropped_files(ctx);
         if self.view == View::Wiki || matches!(self.vs.wiki.pending_reload, true) {

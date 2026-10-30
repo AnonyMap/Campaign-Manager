@@ -140,6 +140,18 @@ fn appearance(ui: &mut egui::Ui, st: &mut State, s: &mut AppSettings) {
         });
         ui.end_row();
 
+        ui.label("Writing");
+        ui.vertical(|ui| {
+            ui.horizontal(|ui| {
+                ui.radio_value(&mut s.markdown_source, false, "Formatted")
+                    .on_hover_text("Bold looks bold, headings look like headings; a toolbar adds formatting");
+                ui.radio_value(&mut s.markdown_source, true, "Markdown")
+                    .on_hover_text("A plain text box showing the Markdown marks (**bold**, # heading…)");
+            });
+            ui.weak("Either way the text is saved as Markdown, so you can switch any time (also with the “Markdown” box on each editor's toolbar).");
+        });
+        ui.end_row();
+
         ui.label("Density");
         ui.checkbox(&mut s.compact, "Compact (tighter spacing)");
         ui.end_row();

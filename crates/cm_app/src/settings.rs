@@ -86,6 +86,8 @@ pub struct AppSettings {
     pub week_start: cm_core::calendar::WeekStart,
     /// How real-world dates are written.
     pub date_style: cm_core::calendar::DateStyle,
+    /// Write in Markdown fields with the marks showing (plain text box) instead of formatted.
+    pub markdown_source: bool,
 }
 
 impl Default for AppSettings {
@@ -109,6 +111,7 @@ impl Default for AppSettings {
             nav_collapsed: false,
             week_start: cm_core::calendar::WeekStart::Sunday,
             date_style: cm_core::calendar::DateStyle::Us,
+            markdown_source: false,
         }
     }
 }
@@ -303,9 +306,46 @@ impl AppSettings {
                 None => result = Err("No custom font selected".into()),
             },
         }
+        // A real bold face for formatted text and headings (the built-in font only has one
+        // weight). Matches the system font when there is a bold version of it next to it.
+        let bold = match self.font {
+            FontChoice::System => system_bold_font_bytes(),
+            _ => None,
+        }
+        .unwrap_or_else(|| BUNDLED_BOLD.to_vec());
+        fonts.font_data.insert("ui-bold".to_owned(), Arc::new(FontData::from_owned(bold)));
+        let mut bold_family = vec!["ui-bold".to_owned()];
+        bold_family.extend(fonts.families.get(&FontFamily::Proportional).cloned().unwrap_or_default());
+        fonts.families.insert(crate::rich_text::bold_family(), bold_family);
         ctx.set_fonts(fonts);
         result
     }
+}
+
+/// Ubuntu Bold (Ubuntu Font Licence, like the built-in Ubuntu Light).
+const BUNDLED_BOLD: &[u8] = include_bytes!("../assets/Ubuntu-Bold.ttf");
+
+fn system_bold_font_bytes() -> Option<Vec<u8>> {
+    let candidates: &[&str] = if cfg!(target_os = "windows") {
+        &[
+            "C:\\Windows\\Fonts\\segoeuib.ttf",
+            "C:\\Windows\\Fonts\\arialbd.ttf",
+            "C:\\Windows\\Fonts\\tahomabd.ttf",
+        ]
+    } else if cfg!(target_os = "macos") {
+        &["/System/Library/Fonts/Supplemental/Arial Bold.ttf", "/Library/Fonts/Arial Bold.ttf"]
+    } else {
+        &[
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+            "/usr/share/fonts/dejavu/DejaVuSans-Bold.ttf",
+            "/usr/share/fonts/TTF/DejaVuSans-Bold.ttf",
+            "/usr/share/fonts/truetype/noto/NotoSans-Bold.ttf",
+            "/usr/share/fonts/noto/NotoSans-Bold.ttf",
+            "/usr/share/fonts/google-noto/NotoSans-Bold.ttf",
+            "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+        ]
+    };
+    candidates.iter().find_map(|p| std::fs::read(p).ok())
 }
 
 fn looks_like_font(b: &[u8]) -> bool {
