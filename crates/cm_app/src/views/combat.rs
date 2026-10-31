@@ -127,10 +127,18 @@ fn bloodied_color(ui: &egui::Ui) -> Color32 {
 pub fn show(ui: &mut egui::Ui, doc: &mut Doc, sh: &mut Shared, st: &mut State) {
     let was_none = doc.c.active_encounter.is_none();
     let mut enc = doc.c.active_encounter.take().unwrap_or_else(|| RunningEncounter::new("Encounter"));
+    let shown_before = st.selected;
     toolbar(ui, doc, sh, st, &mut enc);
     turn_bar(ui, doc, sh, st, &mut enc);
     ui.separator();
 
+    // If Next / Back just moved the selection, draw the old combatant's details one last
+    // time: a number typed into one of its boxes is saved when the box loses focus, which
+    // only happens if the box is drawn again.
+    let moved_to = st.selected;
+    if moved_to != shown_before && shown_before.map(|id| enc.get(id).is_some()).unwrap_or(false) {
+        st.selected = shown_before;
+    }
     egui::SidePanel::right("combat_detail")
         .resizable(true)
         .default_width(330.0)
@@ -140,6 +148,10 @@ pub fn show(ui: &mut egui::Ui, doc: &mut Doc, sh: &mut Shared, st: &mut State) {
                 .id_salt("combat_detail_scroll")
                 .show(ui, |ui| detail(ui, doc, sh, st, &mut enc));
         });
+    if st.selected == shown_before && moved_to != shown_before {
+        st.selected = moved_to;
+        ui.ctx().request_repaint();
+    }
 
     add_window(ui.ctx(), doc, sh, st, &mut enc);
     st.targets.retain(|t| enc.get(t.0).is_some());
@@ -1387,7 +1399,7 @@ fn detail(ui: &mut egui::Ui, doc: &mut Doc, sh: &mut Shared, st: &mut State, enc
             ui.label("Name");
             ui.add_sized(
                 [160.0, ui.spacing().interact_size.y],
-                egui::TextEdit::singleline(&mut c.name).desired_width(160.0),
+                egui::TextEdit::singleline(&mut c.name).id(egui::Id::new(("cname", cid))).desired_width(160.0),
             );
             if ui
                 .button("Save as NPC")
@@ -1776,6 +1788,7 @@ fn detail(ui: &mut egui::Ui, doc: &mut Doc, sh: &mut Shared, st: &mut State, enc
                 }
                 ui.add(
                     egui::TextEdit::singleline(&mut ac.note)
+                        .id(egui::Id::new(("cond_note", cid, i)))
                         .hint_text("note (source, save DC…)")
                         .desired_width(f32::INFINITY),
                 );
@@ -1884,7 +1897,14 @@ fn detail(ui: &mut egui::Ui, doc: &mut Doc, sh: &mut Shared, st: &mut State, enc
     if src == CombatantSource::AdHoc && c.notes.starts_with("init ") {
         ui.weak(format!("({})", c.notes));
     } else {
-        ui.add(egui::TextEdit::multiline(&mut c.notes).desired_rows(2).desired_width(f32::INFINITY));
+        // (an id per combatant, so typing and undo in one creature's notes never carry over
+        // to the next one shown in the same place)
+        ui.add(
+            egui::TextEdit::multiline(&mut c.notes)
+                .id(egui::Id::new(("cnotes", cid)))
+                .desired_rows(2)
+                .desired_width(f32::INFINITY),
+        );
     }
 }
 

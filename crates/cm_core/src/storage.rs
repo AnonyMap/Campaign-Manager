@@ -136,6 +136,19 @@ pub fn import_asset(dir: &Path, source: &Path) -> Result<String, StorageError> {
     Ok(format!("{ASSETS_DIR}/{name}"))
 }
 
+/// True for a plain `assets/…` path that stays inside the campaign folder on every
+/// system: no `..`, no drive letters (`C:`), no backslashes, no absolute paths. Paths read
+/// from someone else's package must pass this before anything is written for them.
+pub fn is_safe_asset_path(rel: &str) -> bool {
+    let Some(rest) = rel.strip_prefix(&format!("{ASSETS_DIR}/")) else {
+        return false;
+    };
+    !rest.is_empty()
+        && rest
+            .split('/')
+            .all(|part| !part.is_empty() && part != "." && part != ".." && !part.chars().any(|c| matches!(c, '\\' | ':' | '\0') || c.is_control()))
+}
+
 /// Resolve a campaign-relative path (forward slashes) to an absolute one.
 pub fn resolve_asset(dir: &Path, rel: &str) -> PathBuf {
     let p = Path::new(rel);

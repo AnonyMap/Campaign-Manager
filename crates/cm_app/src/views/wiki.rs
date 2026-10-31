@@ -296,37 +296,6 @@ pub fn show(ui: &mut egui::Ui, doc: &mut Doc, sh: &mut Shared, st: &mut State) {
                         _ => {}
                     }
                 }
-                if st.pending_quit {
-                    let mut choice = 0;
-                    egui::Frame::group(ui.style()).show(ui, |ui| {
-                        ui.horizontal_wrapped(|ui| {
-                            ui.label(RichText::new("Save this note before quitting?").strong());
-                            if ui.button("💾 Save and quit").clicked() {
-                                choice = 1;
-                            }
-                            if ui.button("Quit without saving").clicked() {
-                                choice = 2;
-                            }
-                            if ui.button("Cancel").clicked() {
-                                choice = 3;
-                            }
-                        });
-                    });
-                    let quit = match choice {
-                        1 => save_note(&mut vault, st, &rel, sh),
-                        2 => {
-                            st.editing = None;
-                            true
-                        }
-                        _ => false,
-                    };
-                    if choice != 0 {
-                        st.pending_quit = false;
-                    }
-                    if quit {
-                        ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
-                    }
-                }
                 ui.separator();
                 egui::ScrollArea::vertical().id_salt("wiki_note").show(ui, |ui| {
                     match &mut st.editing {
@@ -464,6 +433,64 @@ fn setup(ui: &mut egui::Ui, doc: &mut Doc, sh: &mut Shared, st: &mut State) {
 
 /// Write the note being edited, unless the file changed on disk since editing started (then
 /// warn first; a second save overwrites). Returns true when saved.
+/// Save the note being edited (if it has changes) to the vault. False if it couldn't be
+/// saved: no vault, a write error, or the file changed on disk meanwhile (then `conflict`
+/// is set and the note view explains).
+pub fn save_open_note(sh: &mut Shared, st: &mut State) -> bool {
+    let Some(rel) = st.has_unsaved() else { return true };
+    let Some(mut vault) = sh.vault.take() else {
+        sh.toast("The wiki vault isn't loaded, so the note can't be saved");
+        return false;
+    };
+    let ok = save_note(&mut vault, st, &rel, sh);
+    sh.vault = Some(vault);
+    ok
+}
+
+/// Asked to quit while a wiki note has unsaved changes: a small window (shown whatever the
+/// wiki page shows, even if the note has since disappeared from the vault). Returns true
+/// when the app may now close.
+pub fn quit_prompt(ctx: &egui::Context, sh: &mut Shared, st: &mut State) -> bool {
+    if !st.pending_quit {
+        return false;
+    }
+    let name = st.open.clone().unwrap_or_default();
+    let mut choice = 0;
+    egui::Window::new("Unsaved wiki note")
+        .collapsible(false)
+        .resizable(false)
+        .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+        .show(ctx, |ui| {
+            ui.label(format!("“{name}” has changes that aren't saved yet."));
+            if st.conflict {
+                ui.colored_label(ui.visuals().warn_fg_color, "It was also changed outside the app; saving again overwrites that.");
+            }
+            ui.horizontal(|ui| {
+                if ui.button("💾 Save and quit").clicked() {
+                    choice = 1;
+                }
+                if ui.button("Quit without saving").clicked() {
+                    choice = 2;
+                }
+                if ui.button("Cancel").clicked() {
+                    choice = 3;
+                }
+            });
+        });
+    let quit = match choice {
+        1 => save_open_note(sh, st),
+        2 => {
+            st.editing = None;
+            true
+        }
+        _ => false,
+    };
+    if choice == 3 || quit {
+        st.pending_quit = false;
+    }
+    quit
+}
+
 fn save_note(vault: &mut Vault, st: &mut State, rel: &str, sh: &mut Shared) -> bool {
     let Some(text) = st.editing.clone() else { return true };
     if !st.conflict {

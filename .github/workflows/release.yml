@@ -21,7 +21,11 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+      # the randomised tests use a fixed seed here, so a release never fails by chance
+      # (run them locally without it to keep exploring new inputs)
       - run: cargo test --workspace
+        env:
+          PROPTEST_RNG_SEED: "20261031"
 
   linux:
     needs: test

@@ -17,6 +17,7 @@ path = "src/main.rs"
 winresource = "0.1"
 
 [dependencies]
+ab_glyph = "0.2"
 cm_core = { path = "../cm_core" }
 eframe = { version = "0.33", default-features = false, features = ["default_fonts", "glow", "wayland", "x11"] }
 egui = "0.33"
@@ -31,3 +32,8 @@ chrono = { version = "0.4", default-features = false, features = ["clock", "std"
 fastrand = "2"
 uuid = { version = "1", features = ["v4"] }
 
+
+[dev-dependencies]
+proptest = { version = "1", default-features = false, features = ["std"] }
+egui_kittest = { version = "0.33", default-features = false, features = ["eframe"] }
+tempfile = "3"

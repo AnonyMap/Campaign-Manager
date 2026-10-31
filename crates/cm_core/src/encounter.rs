@@ -139,6 +139,13 @@ impl Default for Combatant {
     }
 }
 
+/// Most copies of one creature a premade encounter puts into a fight.
+pub const MAX_COPIES: u32 = 200;
+
+/// Largest HP amount (damage, healing or a set value) the tracker accepts; keeps the
+/// arithmetic far from integer overflow.
+pub const HP_LIMIT: i32 = 1_000_000;
+
 /// How to add creatures to a running encounter.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct AddOptions {
@@ -175,7 +182,7 @@ impl Portion {
         match self {
             Portion::Full => Some(n),
             Portion::Half => Some(n / 2), // 5e rounds down
-            Portion::Double => Some(n * 2),
+            Portion::Double => Some(n.saturating_mul(2)),
             Portion::None => None,
         }
     }
@@ -211,7 +218,7 @@ impl Combatant {
     pub fn health(&self) -> HealthState {
         match (self.current_hp, self.max_hp) {
             (Some(hp), _) if hp <= 0 => HealthState::Down,
-            (Some(hp), Some(max)) if max > 0 && hp * 2 <= max => HealthState::Bloodied,
+            (Some(hp), Some(max)) if max > 0 && (hp as i64) * 2 <= max as i64 => HealthState::Bloodied,
             (Some(_), Some(_)) => HealthState::Healthy,
             (Some(_), None) => HealthState::Healthy,
             _ => HealthState::Unknown,
@@ -238,7 +245,7 @@ impl Combatant {
         if kind != HpChangeKind::Set && amount < 0.0 {
             return Err(DiceError::Invalid("amount can't be negative".into()));
         }
-        let amount = amount as i32;
+        let amount = amount.clamp(-HP_LIMIT as f64, HP_LIMIT as f64) as i32;
         let plain_number = input.trim().chars().all(|c| c.is_ascii_digit());
         let breakdown = format!("{} = {}", out.breakdown(), fmt_num(amount as f64));
         Ok(self.apply_amount(kind, input.trim(), &breakdown, amount, !plain_number, round))
@@ -246,7 +253,10 @@ impl Combatant {
 
     /// Apply an already-computed amount.
     pub fn apply_amount(&mut self, kind: HpChangeKind, input: &str, breakdown: &str, amount: i32, calculated: bool, round: u32) -> HpChange {
+        let amount = amount.clamp(-HP_LIMIT, HP_LIMIT);
         let before_hp = self.current_hp;
+        let was_dead = self.death_state() == Some(DeathState::Dead);
+        let was_stable = self.death_state() == Some(DeathState::Stable);
         let before_temp = self.temp_hp;
         let was_down = before_hp.map(|h| h <= 0).unwrap_or(false);
         let before_death_saves = (self.death_successes, self.death_failures);
@@ -259,14 +269,16 @@ impl Combatant {
                 if remaining > 0 {
                     let hp = self.current_hp.or(self.max_hp).unwrap_or(0);
                     // HP doesn't go below 0 in 5e.
-                    self.current_hp = Some((hp - remaining).max(0));
+                    self.current_hp = Some(hp.saturating_sub(remaining).max(0));
                 } else if self.current_hp.is_none() {
                     self.current_hp = self.max_hp;
                 }
             }
+            // a dead character isn't brought back by healing (use Set HP for a revival)
+            HpChangeKind::Heal if was_dead => {}
             HpChangeKind::Heal => {
                 let hp = self.current_hp.or(self.max_hp).unwrap_or(0).max(0);
-                let healed = hp + amount;
+                let healed = hp.saturating_add(amount);
                 self.current_hp = Some(match self.max_hp {
                     Some(max) => healed.min(max),
                     None => healed,
@@ -283,11 +295,17 @@ impl Combatant {
                 self.current_hp = Some(amount);
             }
         }
+        self.current_hp = self.current_hp.map(|h| h.clamp(-HP_LIMIT, HP_LIMIT));
         // Death saves (2024 rules): damage while at 0 HP is a failed save; any healing
         // brings the creature back and resets them.
         if self.is_player() {
             let now_down = self.current_hp.map(|h| h <= 0).unwrap_or(false);
             if kind == HpChangeKind::Damage && was_down && amount > 0 {
+                // a stable character who takes damage starts dying again (2024 rules)
+                if was_stable {
+                    self.death_successes = 0;
+                    self.death_failures = 0;
+                }
                 self.death_failures = (self.death_failures + 1).min(3);
             }
             if !now_down {
@@ -333,16 +351,24 @@ impl Combatant {
             return self.undo_last_hp();
         }
         let c = self.hp_log.remove(idx);
-        let d_hp = c.after_hp.unwrap_or(0) - c.before_hp.unwrap_or(c.after_hp.unwrap_or(0));
-        let d_temp = c.after_temp - c.before_temp;
+        let d_hp = c.after_hp.unwrap_or(0).saturating_sub(c.before_hp.unwrap_or(c.after_hp.unwrap_or(0)));
+        let d_temp = c.after_temp.saturating_sub(c.before_temp);
+        // a hit taken while down added a failed death save: take it back too
+        if self.is_player() && c.kind == HpChangeKind::Damage && c.before_hp.map(|h| h <= 0).unwrap_or(false) && c.amount > 0 {
+            self.death_failures = self.death_failures.saturating_sub(1);
+        }
         if let Some(hp) = self.current_hp {
-            let mut v = hp - d_hp;
+            let mut v = hp.saturating_sub(d_hp);
             if let Some(max) = self.max_hp {
                 v = v.min(max);
             }
             self.current_hp = Some(v.max(0));
         }
-        self.temp_hp = (self.temp_hp - d_temp).max(0);
+        self.temp_hp = self.temp_hp.saturating_sub(d_temp).max(0);
+        if self.current_hp.map(|h| h > 0).unwrap_or(false) {
+            self.death_successes = 0;
+            self.death_failures = 0;
+        }
         Some(c)
     }
 
@@ -387,6 +413,8 @@ impl Combatant {
     }
 
     pub fn add_condition(&mut self, name: &str, rounds: Option<u32>) {
+        // "0 rounds" ends when the next round starts, exactly like 1 round
+        let rounds = rounds.map(|r| r.max(1));
         if let Some(c) = self.conditions.iter_mut().find(|c| c.name.eq_ignore_ascii_case(name)) {
             if c.level > 0 {
                 c.level = (c.level + 1).min(6);
@@ -425,6 +453,10 @@ pub struct RunningEncounter {
     pub last_group: Option<Id>,
     /// What each new round did to condition timers, so going back a round can undo it.
     pub round_ticks: Vec<RoundTick>,
+    /// Where each Next came from (from id, from round, to id, to round), so Back returns
+    /// to exactly that turn even if it belongs to someone Next would now pass over (say,
+    /// a monster that dropped on its own turn).
+    pub turn_history: Vec<(Id, u32, Id, u32)>,
 }
 
 /// Condition timers changed when a round started: timers counted down, and conditions that ran out.
@@ -434,6 +466,9 @@ pub struct RoundTick {
     pub round: u32,
     pub counted_down: Vec<(Id, String)>,
     pub expired: Vec<(Id, AppliedCondition)>,
+    /// Where each expired condition sat in its list (same order as `expired`), so going
+    /// back puts it back in place. Missing in saves from before 0.4.4.
+    pub expired_at: Vec<usize>,
 }
 
 impl Default for RunningEncounter {
@@ -449,6 +484,7 @@ impl Default for RunningEncounter {
             log: Vec::new(),
             last_group: None,
             round_ticks: Vec::new(),
+            turn_history: Vec::new(),
         }
     }
 }
@@ -476,7 +512,8 @@ impl RunningEncounter {
         let mut r = RunningEncounter::new(&enc.name);
         r.source_encounter = Some(enc.id);
         for entry in &enc.entries {
-            let count = entry.count.max(1);
+            // (a hand-edited or imported file could ask for millions)
+            let count = entry.count.clamp(1, MAX_COPIES);
             let group = if count > 1 && entry.group_initiative { Some(new_id()) } else { None };
             let first_new = r.combatants.len();
             for _ in 0..count {
@@ -765,11 +802,26 @@ impl RunningEncounter {
             c.initiative = init;
         }
         if let Some(idx) = self.combatants.iter().position(|c| c.id == id) {
+            let was_current = idx == self.turn;
             self.combatants.remove(idx);
             if idx < self.turn {
                 self.turn -= 1;
             }
-            if self.turn >= self.combatants.len() {
+            if self.combatants.is_empty() {
+                self.turn = 0;
+            } else if was_current && self.started {
+                // the turn passes on as if Next had been pressed: to whoever came after them,
+                // or into the next round if they were last
+                if idx > 0 {
+                    self.turn = idx - 1;
+                    self.next_turn();
+                } else {
+                    self.turn = 0;
+                    if self.skips(0) {
+                        self.next_turn();
+                    }
+                }
+            } else if self.turn >= self.combatants.len() {
                 self.turn = 0;
             }
         }
@@ -806,11 +858,25 @@ impl RunningEncounter {
             (a, String::new())
         };
         let modifier = source.value();
-        let total = d20 + modifier;
+        // 2024 rules: Exhaustion takes 2 × its level off every d20 test, initiative included
+        let exhaustion = c
+            .conditions
+            .iter()
+            .find(|x| x.name.eq_ignore_ascii_case("Exhaustion"))
+            .map(|x| 2 * x.level.max(1) as i32)
+            .unwrap_or(0);
+        let total = d20 + modifier - exhaustion;
         let cm = self.get_mut(id)?;
         cm.initiative = Some(total);
+        // a fresh roll replaces any place it was dragged to
+        cm.tiebreak = 0;
+        let exhaustion_note = if exhaustion > 0 {
+            format!(" − {exhaustion} (Exhaustion)")
+        } else {
+            String::new()
+        };
         cm.initiative_note = format!(
-            "rolled {d20}{adv_note} {} {} — {}",
+            "rolled {d20}{adv_note} {} {}{exhaustion_note} — {}",
             if modifier >= 0 { "+" } else { "−" },
             modifier.abs(),
             source.describe()
@@ -859,6 +925,7 @@ impl RunningEncounter {
             if *id != first {
                 if let Some(c) = self.get_mut(*id) {
                     c.initiative = Some(r.total);
+                    c.tiebreak = 0;
                     c.initiative_note = format!("rolled together with {lead}: {note}");
                 }
             }
@@ -876,6 +943,7 @@ impl RunningEncounter {
     pub fn set_initiative(&mut self, id: Id, value: Option<i32>) {
         if let Some(c) = self.get_mut(id) {
             c.initiative = value;
+            c.tiebreak = 0;
             c.initiative_note = match value {
                 Some(_) => "entered manually".into(),
                 None => String::new(),
@@ -1003,6 +1071,7 @@ impl RunningEncounter {
         if self.turn >= n {
             self.turn = n - 1;
         }
+        let from = (self.combatants[self.turn].id, self.round);
         for _ in 0..n {
             self.turn += 1;
             if self.turn >= n {
@@ -1014,6 +1083,10 @@ impl RunningEncounter {
             if !self.skips(self.turn) {
                 break;
             }
+        }
+        self.turn_history.push((from.0, from.1, self.combatants[self.turn].id, self.round));
+        if self.turn_history.len() > 200 {
+            self.turn_history.remove(0);
         }
     }
 
@@ -1028,6 +1101,23 @@ impl RunningEncounter {
         if self.turn >= n {
             self.turn = n - 1;
         }
+        // straight back to where the last Next came from, when nothing has moved since
+        let here = (self.combatants[self.turn].id, self.round);
+        if let Some(&(from_id, from_round, to_id, to_round)) = self.turn_history.last() {
+            if (to_id, to_round) == here && from_round <= self.round {
+                if let Some(idx) = self.combatants.iter().position(|c| c.id == from_id) {
+                    self.turn_history.pop();
+                    while self.round > from_round.max(1) {
+                        self.untick_conditions();
+                        self.log.push(format!("Back to round {}", self.round - 1));
+                        self.round -= 1;
+                    }
+                    self.turn = idx;
+                    return;
+                }
+            }
+        }
+        self.turn_history.clear();
         let (start_round, start_turn) = (self.round, self.turn);
         for _ in 0..n {
             if self.turn == 0 {
@@ -1068,6 +1158,7 @@ impl RunningEncounter {
                 }
             }
             let (id, name) = (c.id, c.name.clone());
+            let mut at = 0;
             c.conditions.retain(|cond| {
                 let keep = cond.rounds_remaining != Some(0);
                 if !keep {
@@ -1079,7 +1170,9 @@ impl RunningEncounter {
                             ..cond.clone()
                         },
                     ));
+                    tick.expired_at.push(at);
                 }
+                at += 1;
                 keep
             });
         }
@@ -1103,10 +1196,13 @@ impl RunningEncounter {
                 }
             }
         }
-        for (id, cond) in tick.expired {
+        // put expired conditions back where they were (in the order they were removed)
+        for (k, (id, cond)) in tick.expired.into_iter().enumerate() {
+            let at = tick.expired_at.get(k).copied();
             if let Some(c) = self.get_mut(id) {
                 if !c.has_condition(&cond.name) {
-                    c.conditions.push(cond);
+                    let at = at.unwrap_or(c.conditions.len()).min(c.conditions.len());
+                    c.conditions.insert(at, cond);
                 }
             }
         }
@@ -1138,7 +1234,7 @@ impl RunningEncounter {
         if total < 0.0 {
             return Err(DiceError::Invalid("amount can't be negative".into()));
         }
-        let total = total as i32;
+        let total = total.min(HP_LIMIT as f64) as i32;
         let plain = input.trim().chars().all(|c| c.is_ascii_digit());
         let breakdown = format!("{} = {}", out.breakdown(), total);
         let group = new_id();
@@ -1303,6 +1399,12 @@ impl RunningEncounter {
                 name: if c.source == CombatantSource::AdHoc { c.name.clone() } else { String::new() },
                 max_hp: if c.source == CombatantSource::AdHoc { c.max_hp } else { None },
                 ac: if c.source == CombatantSource::AdHoc { c.ac } else { None },
+                // one-off creatures keep their "init +N" note as the entry's modifier
+                initiative_mod: if c.source == CombatantSource::AdHoc {
+                    c.notes.trim().strip_prefix("init ").and_then(|r| r.trim().trim_start_matches('+').parse().ok())
+                } else {
+                    None
+                },
                 form: c.form,
                 ..Default::default()
             });
@@ -1416,12 +1518,12 @@ pub struct DifficultyEstimate {
 
 /// Estimate encounter difficulty using the 2024 DMG XP budget method.
 pub fn estimate_difficulty(enc: &Encounter, campaign: &Campaign, party_levels: &[u32]) -> DifficultyEstimate {
-    let mut monster_xp = 0;
+    let mut monster_xp: u32 = 0;
     let mut unknown = 0;
     for e in enc.entries.iter().filter(|e| !e.ally) {
         if matches!(e.source, CombatantSource::Npc(_) | CombatantSource::StatBlock(_)) {
             match campaign.cr_as(&e.source, e.form).and_then(|cr| xp_for_cr(&cr)) {
-                Some(xp) => monster_xp += xp * e.count.max(1),
+                Some(xp) => monster_xp = monster_xp.saturating_add(xp.saturating_mul(e.count.max(1))),
                 None => unknown += e.count.max(1) as usize,
             }
         } else if e.source == CombatantSource::AdHoc {

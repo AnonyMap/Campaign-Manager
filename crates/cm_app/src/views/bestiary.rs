@@ -63,7 +63,8 @@ pub struct State {
     /// Multi-select mode for bulk actions.
     select_mode: bool,
     checked: std::collections::HashSet<Id>,
-    last_clicked: Option<usize>,
+    /// The stat block last ticked (an id, not a list position: the list changes as you filter).
+    last_clicked: Option<Id>,
     confirm_delete: Option<Vec<Id>>,
     new_collection: String,
     /// Collection rename box (None until the menu is first shown for a collection).
@@ -341,7 +342,8 @@ fn list_panel(ui: &mut egui::Ui, doc: &mut Doc, sh: &mut Shared, st: &mut State)
                                 let r = ui.checkbox(&mut on, text);
                                 if r.clicked() {
                                     // shift-click ticks everything between this and the last click
-                                    if let (true, Some(last)) = (shift, st.last_clicked) {
+                                    let last = st.last_clicked.and_then(|l| shown.iter().position(|x| *x == l));
+                                    if let (true, Some(last)) = (shift, last) {
                                         let (a, b) = if last <= idx { (last, idx) } else { (idx, last) };
                                         for j in a..=b {
                                             if on {
@@ -355,7 +357,7 @@ fn list_panel(ui: &mut egui::Ui, doc: &mut Doc, sh: &mut Shared, st: &mut State)
                                     } else {
                                         st.checked.remove(id);
                                     }
-                                    st.last_clicked = Some(idx);
+                                    st.last_clicked = Some(*id);
                                 }
                             } else {
                                 let r = ui_util::list_row(ui, st.selected == Some(s.id), text);

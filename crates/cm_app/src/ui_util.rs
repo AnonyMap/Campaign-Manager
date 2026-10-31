@@ -345,11 +345,13 @@ pub fn game_date_edit(ui: &mut Ui, id_salt: impl std::hash::Hash, cal: &GameCale
     ui.horizontal(|ui| {
         ui.add(
             egui::DragValue::new(&mut d.day)
-                .range(1..=cal.months.get(d.month as usize - 1).map(|m| m.days).unwrap_or(30).max(1))
+                .range(1..=cal.months.get((d.month as usize).wrapping_sub(1)).map(|m| m.days).unwrap_or(30).max(1))
+                // just showing a date mustn't change it (e.g. after a month is removed)
+                .clamp_existing_to_range(false)
                 .prefix("day "),
         );
         egui::ComboBox::from_id_salt(("gdm", id_salt))
-            .selected_text(cal.months.get(d.month as usize - 1).map(|m| m.name.clone()).unwrap_or("?".into()))
+            .selected_text(cal.months.get((d.month as usize).wrapping_sub(1)).map(|m| m.name.clone()).unwrap_or("?".into()))
             .show_ui(ui, |ui| {
                 for (i, m) in cal.months.iter().enumerate() {
                     ui.selectable_value(&mut d.month, i as u32 + 1, &m.name);
@@ -363,7 +365,11 @@ pub fn game_date_edit(ui: &mut Ui, id_salt: impl std::hash::Hash, cal: &GameCale
             ui.weak(wd);
         }
     });
-    *d = cal.clamp(*d);
+    // fit the date to the calendar only when it was edited here; merely opening a record
+    // whose date no longer fits (a month was removed) leaves it alone
+    if *d != before {
+        *d = cal.clamp(*d);
+    }
     *d != before
 }
 
@@ -472,6 +478,10 @@ pub fn swatch(ui: &mut Ui, color: Option<[u8; 3]>) {
 /// Run a native file dialog, never letting a dialog-backend failure crash the app.
 /// (If the desktop has no file-dialog service, the user can still paste a path or drag files.)
 pub fn safe_dialog<T>(f: impl FnOnce() -> Option<T>) -> Option<T> {
+    // automated UI tests click every button: never block on a native dialog there
+    if cfg!(test) {
+        return None;
+    }
     match std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)) {
         Ok(v) => v,
         Err(_) => {
@@ -511,6 +521,9 @@ static OPEN_ERROR: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None
 /// through [`take_open_error`] on a later frame.
 pub fn open_with_os(target: &str) -> Result<(), String> {
     use std::process::{Command, Stdio};
+    if cfg!(test) {
+        return Ok(());
+    }
     for (cmd, pre) in os_openers() {
         let spawned = Command::new(cmd)
             .args(*pre)

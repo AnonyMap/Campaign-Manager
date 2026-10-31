@@ -206,7 +206,9 @@ fn inline(line: &str, from: usize, base: Fx, out: &mut Vec<(Range<usize>, Fx)>) 
     };
     while i < b.len() {
         let rest = &line[i..];
-        let prev = if i == 0 { b' ' } else { b[i - 1] };
+        // the whole character before this point (not just its last UTF-8 byte: "à" ends in
+        // 0xA0, which on its own would read as a non-breaking space)
+        let prev = line[..i].chars().next_back().unwrap_or(' ');
         // `code`
         if rest.starts_with('`') {
             if let Some(end) = rest[1..].find('`') {
@@ -254,7 +256,7 @@ fn inline(line: &str, from: usize, base: Fx, out: &mut Vec<(Range<usize>, Fx)>) 
                 let on = if kind == 0 { fx.bold } else { fx.strike };
                 let next = rest[2..].chars().next();
                 let can_open = !on && next.map(|c| !c.is_whitespace()).unwrap_or(false) && rest[2..].contains(mark);
-                let can_close = on && !(prev as char).is_whitespace();
+                let can_close = on && !prev.is_whitespace();
                 if can_open || can_close {
                     push(out, run..i, fx);
                     push(out, i..i + 2, marker);
@@ -277,9 +279,9 @@ fn inline(line: &str, from: usize, base: Fx, out: &mut Vec<(Range<usize>, Fx)>) 
         if (rest.starts_with('*') || rest.starts_with('_')) && !rest.starts_with("**") && !rest.starts_with("__") {
             let mark = &rest[..1];
             let next = rest[1..].chars().next();
-            let word_inside = mark == "_" && (prev as char).is_alphanumeric(); // snake_case stays as is
+            let word_inside = mark == "_" && prev.is_alphanumeric(); // snake_case stays as is
             let can_open = !fx.italic && !word_inside && next.map(|c| !c.is_whitespace()).unwrap_or(false) && rest[1..].contains(mark);
-            let can_close = fx.italic && !(prev as char).is_whitespace();
+            let can_close = fx.italic && !prev.is_whitespace();
             if can_open || can_close {
                 push(out, run..i, fx);
                 push(out, i..i + 1, marker);
@@ -482,7 +484,8 @@ fn toggle_wrap(text: &mut String, sel: Range<usize>, mark: &str) -> Range<usize>
     let m = mark.len();
     let (s, e) = (sel.start, sel.end);
     // already wrapped just outside the selection
-    if s >= m && e + m <= text.len() && &text[s - m..s] == mark && &text[e..e + m] == mark {
+    // (`get` is None when an edge would fall inside a multi-byte character such as "é")
+    if s >= m && text.get(s - m..s) == Some(mark) && text.get(e..e + m) == Some(mark) {
         text.replace_range(e..e + m, "");
         text.replace_range(s - m..s, "");
         return s - m..e - m;
@@ -606,7 +609,7 @@ fn apply(text: &mut String, sel: Range<usize>, cmd: Cmd) -> Range<usize> {
 
 fn toggle_wrap_pair(text: &mut String, sel: Range<usize>, open: &str, close: &str) -> Range<usize> {
     let (s, e) = (sel.start, sel.end);
-    if s >= open.len() && e + close.len() <= text.len() && &text[s - open.len()..s] == open && &text[e..e + close.len()] == close {
+    if s >= open.len() && text.get(s - open.len()..s) == Some(open) && text.get(e..e + close.len()) == Some(close) {
         text.replace_range(e..e + close.len(), "");
         text.replace_range(s - open.len()..s, "");
         return s - open.len()..e - open.len();
@@ -778,7 +781,8 @@ fn indent_list_item(text: &mut String, sel: Range<usize>, indent: bool) -> Optio
         text.insert_str(line_start, "  ");
         Some(sel.start + 2..sel.end + 2)
     } else {
-        let spaces = (line.len() - t.len()).min(2);
+        // only plain spaces/tabs come off (other whitespace can be several bytes long)
+        let spaces = line.bytes().take_while(|b| *b == b' ' || *b == b'\t').count().min(2);
         if spaces == 0 {
             return Some(sel);
         }
@@ -800,7 +804,10 @@ pub fn formatted_edit(ui: &mut Ui, id: egui::Id, text: &mut String, rows: usize,
     };
     // Enter on a list line continues the list (or ends it on an empty item)
     let mut list_enter = false;
-    if focused && ui.input(|i| i.key_pressed(egui::Key::Enter) && i.modifiers.is_none()) {
+    // (only when Enter is all that was typed this frame: otherwise the other characters
+    // would land after the new bullet instead of before it, so let the text box handle it)
+    let typing_too = ui.input(|i| i.events.iter().any(|e| matches!(e, egui::Event::Text(_) | egui::Event::Paste(_))));
+    if focused && !typing_too && ui.input(|i| i.key_pressed(egui::Key::Enter) && i.modifiers.is_none()) {
         let sel = selection(ui.ctx(), id, text);
         if sel.is_empty() {
             if let Some((insert, delete)) = enter_in_list(text, sel.start) {
@@ -1046,5 +1053,163 @@ mod tests {
         indent_list_item(&mut t, 9..9, false).unwrap();
         assert_eq!(t, "- a\n- b");
         assert!(indent_list_item(&mut "plain".to_string(), 2..2, true).is_none());
+    }
+}
+
+/// Randomised checks: whatever text and selection, the editor's helpers never panic, keep
+/// the text valid, and lay out exactly the text they were given.
+#[cfg(test)]
+mod fuzz {
+    use super::*;
+    use proptest::prelude::*;
+
+    fn tricky() -> impl Strategy<Value = String> {
+        let piece = prop_oneof![
+            Just("**"),
+            Just("*"),
+            Just("_"),
+            Just("~~"),
+            Just("`"),
+            Just("```"),
+            Just("[["),
+            Just("]]"),
+            Just("["),
+            Just("]("),
+            Just(")"),
+            Just("# "),
+            Just("### "),
+            Just("- "),
+            Just("- [ ] "),
+            Just("- [x] "),
+            Just("1. "),
+            Just("> "),
+            Just("---"),
+            Just("\n"),
+            Just("  "),
+            Just("\t"),
+            Just("é"),
+            Just("à"),
+            Just("’"),
+            Just("—"),
+            Just("İ"),
+            Just("日本"),
+            Just("🐉"),
+            Just("\u{3000}"),
+            Just("\u{a0}"),
+            Just("word"),
+            Just("x"),
+            Just(" "),
+        ];
+        prop::collection::vec(piece, 0..30).prop_map(|v| v.concat())
+    }
+
+    /// Two char-boundary byte offsets in `t`, from two random fractions.
+    fn sel_in(t: &str, a: f64, b: f64) -> Range<usize> {
+        let bounds: Vec<usize> = t.char_indices().map(|(i, _)| i).chain(std::iter::once(t.len())).collect();
+        let pick = |f: f64| bounds[((f * bounds.len() as f64) as usize).min(bounds.len() - 1)];
+        let (x, y) = (pick(a), pick(b));
+        x.min(y)..x.max(y)
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig { cases: 1500, ..ProptestConfig::default() })]
+
+        #[test]
+        fn toolbar_commands_keep_text_valid(t in tricky(), a in 0.0..1.0f64, b in 0.0..1.0f64) {
+            for cmd in [Cmd::Wrap("**"), Cmd::Wrap("*"), Cmd::Wrap("~~"), Cmd::Wrap("`"), Cmd::Lines("- "), Cmd::Lines("1. "), Cmd::Lines("- [ ] "), Cmd::Lines("> "), Cmd::Heading(1), Cmd::Heading(0), Cmd::Link] {
+                let mut text = t.clone();
+                let sel = sel_in(&text, a, b);
+                let r = apply(&mut text, sel, cmd);
+                prop_assert!(r.start <= r.end && r.end <= text.len(), "selection {r:?} outside {text:?}");
+                prop_assert!(text.is_char_boundary(r.start) && text.is_char_boundary(r.end));
+            }
+        }
+
+        #[test]
+        fn list_keys_keep_text_valid(t in tricky(), a in 0.0..1.0f64, b in 0.0..1.0f64) {
+            let sel = sel_in(&t, a, b);
+            if let Some((insert, delete)) = enter_in_list(&t, sel.start) {
+                prop_assert!(delete <= sel.start);
+                let mut text = t.clone();
+                text.replace_range(sel.start - delete..sel.start, &insert);
+            }
+            for indent in [true, false] {
+                let mut text = t.clone();
+                if let Some(r) = indent_list_item(&mut text, sel.clone(), indent) {
+                    prop_assert!(r.start <= r.end && r.end <= text.len());
+                    prop_assert!(text.is_char_boundary(r.start) && text.is_char_boundary(r.end));
+                }
+            }
+        }
+
+        #[test]
+        fn parsing_covers_every_line(t in tricky()) {
+            let mut fence = false;
+            for line in t.split('\n') {
+                let (_, spans) = parse_line(line, &mut fence);
+                let mut at = 0;
+                for (r, _) in &spans {
+                    prop_assert_eq!(r.start, at, "gap or overlap in {:?}", line);
+                    prop_assert!(line.is_char_boundary(r.end));
+                    at = r.end;
+                }
+                prop_assert_eq!(at, line.len(), "spans don't reach the end of {:?}", line);
+            }
+            let n = t.chars().count();
+            for (chars, _, _, line) in decorations(&t) {
+                prop_assert!(chars.end <= n && line.end <= n);
+            }
+        }
+    }
+
+    #[test]
+    fn wrapping_next_to_accents_and_curly_quotes() {
+        // the cursor right after "é", then Ctrl+I (used to crash)
+        let mut t = "café au lait".to_string();
+        let at = "café".len();
+        let r = apply(&mut t, at..at, Cmd::Wrap("*"));
+        assert!(t.is_char_boundary(r.start));
+        let mut t = "don’t".to_string();
+        let at = "don’".len();
+        apply(&mut t, at..at, Cmd::Wrap("**"));
+        apply(&mut t, at..at, Cmd::Link);
+        // bold closes after "à" (its last UTF-8 byte looks like a no-break space)
+        let mut fence = false;
+        let (_, spans) = parse_line("**voilà** done", &mut fence);
+        assert!(spans.iter().any(|(r, fx)| fx.bold && &"**voilà** done"[r.clone()] == "voilà"));
+        assert!(!spans.iter().any(|(r, fx)| fx.bold && "**voilà** done"[r.clone()].contains("done")));
+        // Shift+Tab on a line indented with an ideographic space
+        let mut t = "\u{3000}- item".to_string();
+        let _ = indent_list_item(&mut t, 5..5, false);
+    }
+
+    /// The bug behind "Enter doesn't make a new paragraph": the layout must hold exactly the
+    /// text typed, whatever it is and wherever the cursor is.
+    #[test]
+    fn layout_holds_exactly_the_text() {
+        let ctx = egui::Context::default();
+        let mut runner = proptest::test_runner::TestRunner::new(ProptestConfig {
+            cases: 400,
+            ..ProptestConfig::default()
+        });
+        let _ = ctx.run(Default::default(), |_| {});
+        runner
+            .run(&(tricky(), 0.0..1.0f64, 0.0..1.0f64), |(t, a, b)| {
+                let mut ok = true;
+                let _ = ctx.run(Default::default(), |ctx| {
+                    egui::CentralPanel::default().show(ctx, |ui| {
+                        let n = t.chars().count();
+                        let sel = ((a * n as f64) as usize).min(n)..((b * n as f64) as usize).min(n);
+                        for reveal in [None, Some(sel.start.min(sel.end)..sel.start.max(sel.end))] {
+                            let job = layout(ui, &t, 400.0, reveal);
+                            ok &= job.text == t;
+                            ok &= job.sections.iter().all(|s| s.byte_range.end <= t.len());
+                        }
+                    });
+                });
+                prop_assert!(ok, "layout text differs for {:?}", t);
+                Ok(())
+            })
+            .unwrap();
     }
 }

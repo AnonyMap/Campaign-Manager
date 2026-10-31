@@ -485,7 +485,7 @@ pub fn show_npcs(ui: &mut egui::Ui, doc: &mut Doc, sh: &mut Shared, st: &mut Sta
                 });
         }
         ui.separator();
-        egui::ScrollArea::vertical().show(ui, |ui| {
+        {
             let f = st.filter.to_lowercase();
             let mut list: Vec<&Npc> = doc
                 .c
@@ -502,28 +502,32 @@ pub fn show_npcs(ui: &mut egui::Ui, doc: &mut Doc, sh: &mut Shared, st: &mut Sta
                 })
                 .collect();
             list.sort_by_key(|n| n.core.name.to_lowercase());
-            for n in list {
-                let mut text = RichText::new(format!(
-                    "{}{}",
-                    n.core.display_name(),
-                    if let (NpcKind::Monster, Some(cr)) = (n.kind, doc.c.cr_for(&CombatantSource::Npc(n.id))) {
-                        format!("  CR {cr}")
-                    } else {
-                        String::new()
+            // only the rows on screen are laid out (campaigns can have hundreds of NPCs)
+            let row_h = ui.spacing().interact_size.y;
+            egui::ScrollArea::vertical().id_salt("npc_rows").show_rows(ui, row_h, list.len(), |ui, range| {
+                for n in &list[range] {
+                    let mut text = RichText::new(format!(
+                        "{}{}",
+                        n.core.display_name(),
+                        if let (NpcKind::Monster, Some(cr)) = (n.kind, doc.c.cr_for(&CombatantSource::Npc(n.id))) {
+                            format!("  CR {cr}")
+                        } else {
+                            String::new()
+                        }
+                    ));
+                    if n.status == cm_core::LifeStatus::Dead {
+                        text = text.strikethrough().weak();
                     }
-                ));
-                if n.status == cm_core::LifeStatus::Dead {
-                    text = text.strikethrough().weak();
+                    let r = ui_util::list_row(ui, st.selected == Some(n.id), text);
+                    if r.clicked() {
+                        st.selected = Some(n.id);
+                    }
+                    if !n.role.is_empty() {
+                        r.on_hover_text(&n.role);
+                    }
                 }
-                let r = ui_util::list_row(ui, st.selected == Some(n.id), text);
-                if r.clicked() {
-                    st.selected = Some(n.id);
-                }
-                if !n.role.is_empty() {
-                    r.on_hover_text(&n.role);
-                }
-            }
-        });
+            });
+        }
     });
 
     let Some(id) = st.selected else {

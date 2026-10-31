@@ -13,7 +13,7 @@ pub fn show(ui: &mut egui::Ui, doc: &mut Doc, sh: &mut Shared) {
                 .font(egui::TextStyle::Heading)
                 .desired_width(f32::INFINITY),
         );
-        ui_util::markdown_editor(ui, "campaign_desc", &mut doc.c.description, &mut sh.md, 4);
+        ui_util::markdown_editor(ui, ("campaign_desc", doc.c.id), &mut doc.c.description, &mut sh.md, 4);
         ui.separator();
         let c = &doc.c;
         ui.columns(2, |cols| {

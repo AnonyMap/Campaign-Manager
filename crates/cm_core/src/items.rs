@@ -372,7 +372,8 @@ pub fn suggest_modifiers(item: &Item) -> Vec<ItemModifier> {
             _ => {}
         }
     }
-    let text = item.description.to_lowercase();
+    // ASCII-only lowercasing keeps byte positions the same as in the original text
+    let text = item.description.to_ascii_lowercase();
     let mut from = 0;
     while let Some(pos) = text[from..].find(" bonus to ") {
         let at = from + pos;
@@ -383,7 +384,7 @@ pub fn suggest_modifiers(item: &Item) -> Vec<ItemModifier> {
             .filter(|p| at - p <= 3)
             .and_then(|p| before[p + 1..].trim().parse::<i32>().ok());
         let rest = &text[at + " bonus to ".len()..];
-        let end = rest.find(['.', ';', '(']).unwrap_or(rest.len()).min(60);
+        let end = crate::model::floor_char(rest, rest.find(['.', ';', '(']).unwrap_or(rest.len()).min(60));
         let phrase = rest[..end].split(" while ").next().unwrap_or("").split(" that ").next().unwrap_or("").trim();
         if let Some(v) = value {
             if phrase.contains("attack and damage rolls") {
@@ -446,7 +447,8 @@ pub fn suggest_rolls(item: &Item) -> Vec<CustomRoll> {
             push(format!("{name} damage"), notation);
         }
     }
-    let lower = item.description.to_lowercase();
+    // ASCII-only lowercasing keeps byte positions the same as in the original text
+    let lower = item.description.to_ascii_lowercase();
     // healing: "regains 2d4 + 2 Hit Points"
     for key in ["regain ", "regains "] {
         if let Some(p) = lower.find(key) {
@@ -488,7 +490,11 @@ pub fn suggest_rolls(item: &Item) -> Vec<CustomRoll> {
     let mut from = 0;
     while let Some(p) = lower[from..].find(" damage") {
         let at = from + p;
-        let window_start = lower[..at].rfind(['.', ',', ';']).map(|i| i + 1).unwrap_or(0).max(at.saturating_sub(40));
+        let window_start = lower[..at]
+            .rfind(['.', ',', ';'])
+            .map(|i| i + 1)
+            .unwrap_or(0)
+            .max(crate::model::ceil_char(&lower, at.saturating_sub(40)));
         let seg = &item.description[window_start..at];
         if let Some(d) = find_dice(seg) {
             if !seg.to_lowercase().contains("extra") {

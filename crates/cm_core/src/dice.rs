@@ -30,6 +30,12 @@ use serde::{Deserialize, Serialize};
 pub const MAX_DICE: i64 = 10_000;
 /// Maximum number of extra dice an explode modifier may add (matches 5etools).
 pub const MAX_EXPLOSIONS: usize = 999;
+/// Most dice (and sub-rolls) one roll may use, counting re-rolls and explosions.
+pub const MAX_WORK: usize = 20_000;
+/// Longest expression (in numbers, operators and brackets) we'll parse.
+pub const MAX_TOKENS: usize = 400;
+/// Deepest bracket nesting we'll parse.
+pub const MAX_NESTING: usize = 32;
 
 // ---------------------------------------------------------------------------
 // Random source
@@ -614,6 +620,24 @@ impl DiceExpr {
         if toks.is_empty() {
             return Err(DiceError::Empty);
         }
+        // Parsing and rolling walk the expression recursively: keep it to a sane size so
+        // pasted junk can't overflow the stack.
+        if toks.len() > MAX_TOKENS {
+            return Err(DiceError::Invalid(format!("that's too long to roll (over {MAX_TOKENS} parts)")));
+        }
+        let mut depth = 0usize;
+        for t in &toks {
+            match t {
+                Tok::LParen => {
+                    depth += 1;
+                    if depth > MAX_NESTING {
+                        return Err(DiceError::Invalid(format!("too many brackets inside each other (over {MAX_NESTING})")));
+                    }
+                }
+                Tok::RParen => depth = depth.saturating_sub(1),
+                _ => {}
+            }
+        }
         let mut p = Parser { toks, pos: 0 };
         let root = p.expr()?;
         if let Some(t) = p.peek() {
@@ -670,6 +694,7 @@ impl DiceExpr {
             segs: Vec::new(),
             nat20: false,
             nat1: false,
+            work: 0,
         };
         let total = ctx.eval(&self.root, mode, true)?;
         if !total.is_finite() {
@@ -777,6 +802,8 @@ struct EvalCtx<'a> {
     segs: Vec<Segment>,
     nat20: bool,
     nat1: bool,
+    /// Dice rolled and sub-expressions evaluated so far (see MAX_WORK).
+    work: usize,
 }
 
 fn as_int(v: f64, what: &str) -> Result<i64, DiceError> {
@@ -802,7 +829,18 @@ impl<'a> EvalCtx<'a> {
         r
     }
 
+    /// Count work done, and stop once a single roll has done far too much (exploding
+    /// pools inside exploding pools can otherwise run for minutes).
+    fn spend(&mut self, n: usize) -> Result<(), DiceError> {
+        self.work = self.work.saturating_add(n);
+        if self.work > MAX_WORK {
+            return Err(DiceError::Invalid(format!("that roll needs too many dice (over {MAX_WORK})")));
+        }
+        Ok(())
+    }
+
     fn eval(&mut self, n: &Node, mode: Mode, top: bool) -> Result<f64, DiceError> {
+        self.spend(1)?;
         match n {
             Node::Num(v) => {
                 self.text(fmt_num(*v));
@@ -958,6 +996,7 @@ impl<'a> EvalCtx<'a> {
     }
 
     fn eval_dice(&mut self, count: usize, faces: u32, mods: &[Modifier], mode: Mode) -> Result<f64, DiceError> {
+        self.spend(count)?;
         if mode == Mode::Avg {
             // 5etools ignores modifiers in average mode
             let v = count as f64 * (faces as f64 + 1.0) / 2.0;
@@ -1100,6 +1139,7 @@ impl<'a> EvalCtx<'a> {
                     for i in targets {
                         vals[i].dropped = true;
                         let item = vals[i].item;
+                        self.spend(1)?;
                         let (v, segs) = reroll(self, item.unwrap_or(0))?;
                         let mut dv = DieVal::new(v);
                         dv.item = item;
@@ -1119,6 +1159,7 @@ impl<'a> EvalCtx<'a> {
                             if !vals[i].exploded && cmp.test(vals[i].val, n) {
                                 vals[i].exploded = true;
                                 let item = vals[i].item;
+                                self.spend(1)?;
                                 let (v, segs) = reroll(self, item.unwrap_or(0))?;
                                 let mut dv = DieVal::new(v);
                                 dv.item = item;
@@ -1336,6 +1377,9 @@ pub fn expand_macros(expr: &str, macros: &BTreeMap<String, String>) -> Result<St
                 out.push(chars[i]);
                 i += 1;
             }
+        }
+        if out.len() > 2_000 {
+            return Err(DiceError::Invalid("macros expand to something too long (does one use itself?)".into()));
         }
         s = out;
     }

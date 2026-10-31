@@ -117,6 +117,10 @@ impl Default for AppSettings {
 }
 
 pub fn config_dir() -> Option<PathBuf> {
+    // tests (and portable setups) can keep settings somewhere else
+    if let Some(d) = std::env::var_os("CAMPAIGN_MANAGER_CONFIG_DIR").filter(|d| !d.is_empty()) {
+        return Some(PathBuf::from(d));
+    }
     directories::ProjectDirs::from("org", "CampaignManager", "Campaign Manager").map(|d| d.config_dir().to_path_buf())
 }
 
@@ -235,7 +239,12 @@ impl AppSettings {
         if let Some(dir) = config_dir() {
             let _ = std::fs::create_dir_all(&dir);
             if let Ok(s) = serde_json::to_string_pretty(self) {
-                let _ = std::fs::write(dir.join("settings.json"), s);
+                // write a temporary file and rename it over the old one, so a crash or power
+                // cut mid-write never leaves a half-written settings file
+                let tmp = dir.join("settings.json.tmp");
+                if std::fs::write(&tmp, s).is_ok() && std::fs::rename(&tmp, dir.join("settings.json")).is_err() {
+                    let _ = std::fs::remove_file(&tmp);
+                }
             }
         }
     }
@@ -345,11 +354,14 @@ fn system_bold_font_bytes() -> Option<Vec<u8>> {
             "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
         ]
     };
-    candidates.iter().find_map(|p| std::fs::read(p).ok())
+    candidates.iter().filter_map(|p| std::fs::read(p).ok()).find(|b| looks_like_font(b))
 }
 
+/// True if the bytes are a font egui can actually use. egui stops the whole program on a
+/// font it can't read, so every font is test-read with the same library first (a damaged
+/// or truncated file would otherwise crash the app at every start).
 fn looks_like_font(b: &[u8]) -> bool {
-    b.len() > 4 && (b[..4] == [0, 1, 0, 0] || &b[..4] == b"OTTO" || &b[..4] == b"true" || &b[..4] == b"ttcf")
+    b.len() > 4 && (b[..4] == [0, 1, 0, 0] || &b[..4] == b"OTTO" || &b[..4] == b"true" || &b[..4] == b"ttcf") && ab_glyph::FontRef::try_from_slice(b).is_ok()
 }
 
 fn system_font_bytes() -> Option<Vec<u8>> {

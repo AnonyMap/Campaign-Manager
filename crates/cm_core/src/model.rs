@@ -834,6 +834,24 @@ pub struct Npc {
     pub other_statblocks: Vec<Id>,
 }
 
+/// The largest char boundary in `s` at or before byte `i` (safe to slice at).
+pub fn floor_char(s: &str, i: usize) -> usize {
+    let mut i = i.min(s.len());
+    while !s.is_char_boundary(i) {
+        i -= 1;
+    }
+    i
+}
+
+/// The smallest char boundary in `s` at or after byte `i` (safe to slice at).
+pub fn ceil_char(s: &str, i: usize) -> usize {
+    let mut i = i.min(s.len());
+    while !s.is_char_boundary(i) {
+        i += 1;
+    }
+    i
+}
+
 impl Npc {
     /// Every stat block this NPC uses, main one first.
     pub fn statblock_ids(&self) -> Vec<Id> {
@@ -1686,6 +1704,9 @@ impl Campaign {
         }
         for p in &mut self.players {
             p.core.links.retain(|l| l != target);
+        }
+        for sb in &mut self.statblocks {
+            sb.core.links.retain(|l| l != target);
         }
         for f in &mut self.factions {
             f.links.retain(|l| l != target);

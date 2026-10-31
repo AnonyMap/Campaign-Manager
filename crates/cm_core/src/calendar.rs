@@ -135,13 +135,19 @@ impl GameCalendar {
     /// Days since year 0, month 1, day 1. Sorts dates chronologically.
     pub fn ordinal(&self, d: &GameDate) -> i64 {
         let d = self.clamp(*d);
-        let before_month: i64 = self.months[..(d.month as usize - 1).min(self.months.len())].iter().map(|m| m.days as i64).sum();
-        d.year as i64 * self.days_in_year() + before_month + (d.day as i64 - 1)
+        let before_month: i64 = self.months[..(d.month as usize).saturating_sub(1).min(self.months.len())]
+            .iter()
+            .map(|m| m.days as i64)
+            .sum();
+        (d.year as i64)
+            .saturating_mul(self.days_in_year())
+            .saturating_add(before_month)
+            .saturating_add(d.day as i64 - 1)
     }
 
     pub fn from_ordinal(&self, ord: i64) -> GameDate {
         let diy = self.days_in_year();
-        let year = ord.div_euclid(diy);
+        let year = ord.div_euclid(diy).clamp(i32::MIN as i64, i32::MAX as i64);
         let mut rem = ord.rem_euclid(diy);
         for (i, m) in self.months.iter().enumerate() {
             if rem < m.days as i64 {
@@ -161,11 +167,11 @@ impl GameCalendar {
     }
 
     pub fn add_days(&self, d: &GameDate, days: i64) -> GameDate {
-        self.from_ordinal(self.ordinal(d) + days)
+        self.from_ordinal(self.ordinal(d).saturating_add(days))
     }
 
     pub fn days_between(&self, a: &GameDate, b: &GameDate) -> i64 {
-        self.ordinal(b) - self.ordinal(a)
+        self.ordinal(b).saturating_sub(self.ordinal(a))
     }
 
     pub fn weekday(&self, d: &GameDate) -> Option<&str> {
@@ -179,7 +185,7 @@ impl GameCalendar {
 
     pub fn format(&self, d: &GameDate) -> String {
         let d = self.clamp(*d);
-        let month = self.months.get(d.month as usize - 1).map(|m| m.name.as_str()).unwrap_or("?");
+        let month = self.months.get((d.month as usize).wrapping_sub(1)).map(|m| m.name.as_str()).unwrap_or("?");
         let era = if self.era.trim().is_empty() {
             String::new()
         } else {
@@ -230,50 +236,41 @@ impl Default for SessionSchedule {
 }
 
 impl SessionSchedule {
+    /// Walk the schedule's real sessions in order: (number, date), skipping cancelled dates.
+    /// Stops after a generous number of sessions or when dates run out of range.
+    fn walk(&self) -> impl Iterator<Item = (u32, NaiveDate)> + '_ {
+        let step = Duration::days(self.interval_days as i64);
+        let mut date = self.first_date.filter(|_| self.interval_days > 0);
+        let mut number = self.first_number;
+        let mut slots = 0u32;
+        std::iter::from_fn(move || {
+            loop {
+                let d = date?;
+                slots += 1;
+                if slots > 50_000 {
+                    return None;
+                }
+                date = d.checked_add_signed(step);
+                if !self.skipped_dates.contains(&d) {
+                    let n = number;
+                    number = number.checked_add(1)?;
+                    return Some((n, d));
+                }
+            }
+        })
+    }
+
     /// Expected real-world date for session `n`, honouring skipped dates.
     pub fn date_for_session(&self, n: u32) -> Option<NaiveDate> {
-        let start = self.first_date?;
-        if n < self.first_number || self.interval_days == 0 {
+        if n < self.first_number {
             return None;
         }
-        let step = Duration::days(self.interval_days as i64);
-        let mut date = start;
-        let mut number = self.first_number;
-        // Walk forward slot by slot, skipping cancelled dates. Bounded loop.
-        let mut guard = 0;
-        while self.skipped_dates.contains(&date) && guard < 10_000 {
-            date += step;
-            guard += 1;
-        }
-        while number < n && guard < 100_000 {
-            date += step;
-            if !self.skipped_dates.contains(&date) {
-                number += 1;
-            }
-            guard += 1;
-        }
-        Some(date)
+        self.walk().find(|(k, _)| *k == n).map(|(_, d)| d)
     }
 
     /// The session number expected on or before `date` (the most recent scheduled slot).
     pub fn session_for_date(&self, date: NaiveDate) -> Option<u32> {
-        let start = self.first_date?;
-        if date < start || self.interval_days == 0 {
-            return None;
-        }
-        let mut n = self.first_number;
-        let mut last = None;
-        let mut guard = 0;
-        loop {
-            let d = self.date_for_session(n)?;
-            if d > date || guard > 100_000 {
-                break;
-            }
-            last = Some(n);
-            n += 1;
-            guard += 1;
-        }
-        last
+        self.walk().take_while(|(_, d)| *d <= date).last().map(|(n, _)| n)
     }
 
     /// Number of scheduled sessions between today and `date` (inclusive of the end).

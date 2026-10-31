@@ -13,7 +13,7 @@ use std::fs;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
-use crate::model::{Campaign, CombatantSource, Id, Link, new_id};
+use crate::model::{Campaign, CardTiming, CombatantSource, Id, Link, new_id};
 use crate::storage::{self, ASSETS_DIR, CAMPAIGN_FILE};
 
 pub const PACKAGE_EXT: &str = "cmpack";
@@ -424,6 +424,8 @@ pub fn merge(target: &mut Campaign, src: &Campaign, parts: &[Part], dup: Duplica
         src.clone()
     };
     let mut r = MergeReport::default();
+    // old session number → new, for imported sessions that had to be renumbered
+    let mut renumbered: HashMap<u32, u32> = HashMap::new();
     macro_rules! put {
         ($field:ident) => {
             for x in &src.$field {
@@ -449,7 +451,22 @@ pub fn merge(target: &mut Campaign, src: &Campaign, parts: &[Part], dup: Duplica
             }
             Part::Sessions => {
                 let had_sessions = !target.sessions.is_empty();
+                let before: HashMap<Id, u32> = target.sessions.iter().map(|s| (s.id, s.number)).collect();
                 put!(sessions);
+                // sessions that arrive with a number this campaign already uses go on the end
+                // ("Session 1" twice would put the same cards in both)
+                let mut used: BTreeSet<u32> = before.values().copied().collect();
+                let mut next = used.iter().max().map(|m| m + 1).unwrap_or(1);
+                for s in target.sessions.iter_mut().filter(|s| !before.contains_key(&s.id)) {
+                    if used.contains(&s.number) {
+                        while used.contains(&next) {
+                            next += 1;
+                        }
+                        renumbered.insert(s.number, next);
+                        s.number = next;
+                    }
+                    used.insert(s.number);
+                }
                 // the play schedule comes along when this campaign had no sessions of its own
                 if !had_sessions || dup == Duplicates::Replace {
                     target.settings.session_schedule = src.settings.session_schedule.clone();
@@ -487,8 +504,20 @@ pub fn merge(target: &mut Campaign, src: &Campaign, parts: &[Part], dup: Duplica
                 if dup == Duplicates::Replace || target.settings.game_calendar == Default::default() {
                     target.settings.game_calendar = src.settings.game_calendar.clone();
                 }
+                // a vault path relative to the other campaign's folder would point somewhere else here
                 if target.settings.wiki_path.is_none() {
-                    target.settings.wiki_path = src.settings.wiki_path.clone();
+                    target.settings.wiki_path = src.settings.wiki_path.clone().filter(|p| std::path::Path::new(p).is_absolute());
+                }
+            }
+        }
+    }
+    // imported cards planned for a renumbered session follow it
+    if !renumbered.is_empty() {
+        let from_src: HashSet<Id> = src.story_cards.iter().map(|c| c.id).collect();
+        for c in target.story_cards.iter_mut().filter(|c| from_src.contains(&c.id)) {
+            if let CardTiming::Session(n) = c.timing {
+                if let Some(new) = renumbered.get(&n) {
+                    c.timing = CardTiming::Session(*new);
                 }
             }
         }
@@ -507,10 +536,8 @@ pub fn asset_paths(c: &Campaign) -> BTreeSet<String> {
     fn walk(v: &serde_json::Value, out: &mut BTreeSet<String>) {
         match v {
             serde_json::Value::String(s) => {
-                if let Some(rest) = s.strip_prefix("assets/") {
-                    if !rest.is_empty() && !rest.contains("..") {
-                        out.insert(s.clone());
-                    }
+                if storage::is_safe_asset_path(s) {
+                    out.insert(s.clone());
                 }
             }
             serde_json::Value::Array(a) => a.iter().for_each(|x| walk(x, out)),
@@ -590,9 +617,34 @@ impl Source {
     /// Copy the given asset paths into `dest_dir` (a campaign folder). Files already there
     /// are left alone (asset names carry a random suffix, so the same name is the same image).
     /// Returns how many were copied; missing ones are skipped.
+    /// Copy the wanted images into `dest_dir`. Each file is written under a temporary name
+    /// and renamed when complete, so a failure never leaves a half-written image behind.
+    /// An image that can't be copied is skipped (the rest still arrive).
     pub fn copy_assets(&self, wanted: &BTreeSet<String>, dest_dir: &Path) -> Result<usize, TransferError> {
+        fn write_atomically(to: &Path, fill: impl FnOnce(&mut fs::File) -> std::io::Result<()>) -> std::io::Result<()> {
+            if let Some(p) = to.parent() {
+                fs::create_dir_all(p)?;
+            }
+            let mut name = to.file_name().unwrap_or_default().to_os_string();
+            name.push(".partial");
+            let tmp = to.with_file_name(name);
+            let result = fs::File::create(&tmp).and_then(|mut f| {
+                fill(&mut f)?;
+                f.sync_all()
+            });
+            match result.and_then(|_| fs::rename(&tmp, to)) {
+                Ok(()) => Ok(()),
+                Err(e) => {
+                    let _ = fs::remove_file(&tmp);
+                    Err(e)
+                }
+            }
+        }
         let mut n = 0;
-        let todo: Vec<&String> = wanted.iter().filter(|rel| !storage::resolve_asset(dest_dir, rel).exists()).collect();
+        let todo: Vec<&String> = wanted
+            .iter()
+            .filter(|rel| storage::is_safe_asset_path(rel) && !storage::resolve_asset(dest_dir, rel).exists())
+            .collect();
         if todo.is_empty() {
             return Ok(0);
         }
@@ -603,11 +655,13 @@ impl Source {
                     let from = storage::resolve_asset(src, rel);
                     if from.is_file() {
                         let to = storage::resolve_asset(dest_dir, rel);
-                        if let Some(p) = to.parent() {
-                            fs::create_dir_all(p)?;
+                        let copied = write_atomically(&to, |out| {
+                            let mut f = fs::File::open(&from)?;
+                            std::io::copy(&mut f, out).map(|_| ())
+                        });
+                        if copied.is_ok() {
+                            n += 1;
                         }
-                        fs::copy(&from, &to)?;
-                        n += 1;
                     }
                 }
             }
@@ -616,12 +670,9 @@ impl Source {
                 for rel in todo {
                     let Ok(mut entry) = zip.by_name(rel) else { continue };
                     let to = storage::resolve_asset(dest_dir, rel);
-                    if let Some(p) = to.parent() {
-                        fs::create_dir_all(p)?;
+                    if write_atomically(&to, |out| std::io::copy(&mut entry, out).map(|_| ())).is_ok() {
+                        n += 1;
                     }
-                    let mut out = fs::File::create(&to)?;
-                    std::io::copy(&mut entry, &mut out)?;
-                    n += 1;
                 }
             }
             AssetSource::None => {}

@@ -256,7 +256,9 @@ pub enum ImportError {
 pub fn clean_json_text(text: &str) -> String {
     let mut t = text.trim().trim_start_matches('\u{feff}').to_string();
     // AI replies often wrap the JSON in prose and a ``` fence: keep what's inside the fence.
-    if let Some(start) = t.find("```") {
+    // (Text that already starts as JSON is left alone: "```" inside it is just a string.)
+    let starts_as_json = t.starts_with('{') || t.starts_with('[');
+    if let Some(start) = t.find("```").filter(|_| !starts_as_json) {
         let after = &t[start + 3..];
         if let Some(nl) = after.find('\n') {
             let body = &after[nl + 1..];

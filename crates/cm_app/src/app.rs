@@ -295,6 +295,8 @@ impl Doc {
     }
 
     pub fn redo(&mut self) -> bool {
+        // an edit made in the last moment counts first (and, being new, ends redo)
+        self.track(true);
         let Some(next) = self.redo.pop() else {
             return false;
         };
@@ -415,8 +417,19 @@ impl App {
 
     // -- campaign file operations --------------------------------------------
 
+    /// Before leaving this campaign: save a wiki note being edited. If that isn't possible,
+    /// stay (on the wiki page, which says why) rather than lose the edit.
+    fn leave_wiki_note(&mut self) -> bool {
+        if self.vs.wiki.has_unsaved().is_none() || views::wiki::save_open_note(&mut self.sh, &mut self.vs.wiki) {
+            return true;
+        }
+        self.view = View::Wiki;
+        self.sh.toast("Save or discard your wiki note first");
+        false
+    }
+
     pub fn open_campaign(&mut self, path: &Path) {
-        if !self.save_if_dirty() {
+        if !self.leave_wiki_note() || !self.save_if_dirty() {
             return; // keep the current campaign open rather than lose its changes
         }
         let dir = storage::campaign_dir(path);
@@ -453,7 +466,7 @@ impl App {
         c.name = name.to_string();
         match storage::save(&c, &dir) {
             Ok(_) => {
-                if self.save_if_dirty() {
+                if self.leave_wiki_note() && self.save_if_dirty() {
                     self.set_doc(c, dir);
                 }
             }
@@ -488,7 +501,7 @@ impl App {
     }
 
     fn close_campaign(&mut self) {
-        if !self.save_if_dirty() {
+        if !self.leave_wiki_note() || !self.save_if_dirty() {
             return;
         }
         self.doc = None;
@@ -1781,6 +1794,9 @@ impl eframe::App for App {
             ctx.request_repaint_after(std::time::Duration::from_secs(1));
         }
 
+        if views::wiki::quit_prompt(ctx, &mut self.sh, &mut self.vs.wiki) {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+        }
         if ctx.input(|i| i.viewport().close_requested()) && !self.allow_close && self.vs.wiki.has_unsaved().is_some() && self.doc.is_some() {
             // a wiki note is being edited: ask on the wiki page first
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
@@ -1858,3 +1874,7 @@ fn nav_tab(ui: &mut egui::Ui, icon: &str, label: &str, count: Option<String>, ac
     }
     resp
 }
+
+#[cfg(test)]
+#[path = "ui_tests.rs"]
+mod ui_tests;
