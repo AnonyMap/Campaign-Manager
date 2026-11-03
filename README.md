@@ -6,7 +6,7 @@ themes, your own saved themes, and adjustable fonts.
 
 *Working title — the name may change.*
 
-## What it does (v0.4.4)
+## What it does (v0.4.5)
 
 | Area | What you can do |
 |---|---|
@@ -57,6 +57,27 @@ Other:        /clear  /help   ↑/↓ recalls earlier input
 Semantics follow 5etools: rerolls happen once, explosions chain (capped at 999 extra dice),
 `cs` turns the total into a success count, `ms` into a margin.
 
+## Keyboard shortcuts
+
+On a Mac every shortcut uses **⌘ Command** where Windows and Linux use **Ctrl**; menus and
+tooltips show the right one. **Ctrl/⌘ + /** lists them all in the app.
+
+| | |
+|---|---|
+| **Ctrl/⌘ P** | Go to… any card, NPC, place, item, session or screen by name (recent ones when empty) |
+| **Ctrl/⌘ F** | Search the campaign and wiki |
+| **Ctrl/⌘ [ / ]**, mouse back/forward | Back / forward through the screens and records you opened |
+| **Ctrl/⌘ 1 … 9** | Overview, Run session, Story cards, Story board, NPCs, Places, Encounters, Combat, Wiki |
+| **Ctrl/⌘ N**, **Ctrl/⌘ ⇧ N** | New story card, new NPC |
+| **Ctrl/⌘ S**, **Z**, **⇧Z / Y** | Save, undo, redo |
+| **Ctrl/⌘ D**, **,**, **O** | Dice roller, Settings, open a campaign |
+| **Ctrl/⌘ = / − / 0** | Larger / smaller / normal text |
+| **↑ ↓ Home End** | Move through the list on screen (when not typing) |
+| **Esc** | Close the window on top |
+| *Writing:* **Ctrl/⌘ B / I / E / K**, **⇧X** | Bold, italic, code, [[link]], strikethrough |
+| *Writing:* **Ctrl/⌘ ⇧ 7 / 8 / 9**, **⌥ 1 / 2 / 3 / 0** | Numbered / bullet / check list; heading 1–3 / normal text |
+| *Combat:* **N / →**, **B / ←**, **↑ ↓**, **R**, **A** | Next turn (or start), back, select, roll NPC initiative, add creatures |
+
 ## Your data
 
 A campaign is a **folder**:
@@ -82,7 +103,7 @@ config folder, separate from campaigns.
 Requires Rust 1.88+.
 
 ```sh
-cargo test --workspace                     # 162 tests (some randomised, see below)
+cargo test --workspace                     # 179 tests (some randomised, see below)
 cargo run --release -p campaign-manager    # run the app
 cargo run -p cm_core --example make_sample -- "/tmp/Sample"   # write the sample campaign
 ```

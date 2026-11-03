@@ -43,6 +43,10 @@ impl State {
         self.editing = None;
         self.conflict = false;
     }
+    /// The note being shown, if any.
+    pub fn open_note(&self) -> Option<String> {
+        self.open.clone()
+    }
     fn unsaved(&self) -> bool {
         self.editing.as_ref().map(|b| *b != self.editing_base).unwrap_or(false)
     }
@@ -436,6 +440,25 @@ fn setup(ui: &mut egui::Ui, doc: &mut Doc, sh: &mut Shared, st: &mut State) {
 /// Save the note being edited (if it has changes) to the vault. False if it couldn't be
 /// saved: no vault, a write error, or the file changed on disk meanwhile (then `conflict`
 /// is set and the note view explains).
+/// Last resort when the note can't go back into the vault (the vault folder was changed
+/// or removed): keep the text in a file next to the campaign, and stop editing. Returns
+/// the file written.
+pub fn rescue_open_note(st: &mut State, campaign_dir: &std::path::Path) -> Option<std::path::PathBuf> {
+    let text = st.editing.clone()?;
+    let name = st.open.clone().unwrap_or_else(|| "note".into());
+    let base = cm_core::storage::sanitize_file_name(name.rsplit('/').next().unwrap_or(&name).trim_end_matches(".md"));
+    let mut path = campaign_dir.join(format!("Unsaved wiki note - {base}.md"));
+    let mut i = 2;
+    while path.exists() {
+        path = campaign_dir.join(format!("Unsaved wiki note - {base} {i}.md"));
+        i += 1;
+    }
+    std::fs::write(&path, text).ok()?;
+    st.editing = None;
+    st.conflict = false;
+    Some(path)
+}
+
 pub fn save_open_note(sh: &mut Shared, st: &mut State) -> bool {
     let Some(rel) = st.has_unsaved() else { return true };
     let Some(mut vault) = sh.vault.take() else {

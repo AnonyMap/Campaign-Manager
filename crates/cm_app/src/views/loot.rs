@@ -350,8 +350,9 @@ fn result(ui: &mut egui::Ui, doc: &mut Doc, sh: &mut Shared, st: &mut State) {
     if let Some(i) = reroll {
         if let Some(old) = loot.lines[i].item.clone() {
             let new = match old.kind {
-                ItemKind::Gem if !old.is_magic() => Some(loot::gem(&mut sh.rng, old.value_gp() / loot.lines[i].qty.max(1) as f64)),
-                ItemKind::Art if !old.is_magic() => Some(loot::art(&mut sh.rng, old.value_gp() / loot.lines[i].qty.max(1) as f64)),
+                // (an item's value is already per piece: a line of 3 × 50 gp gems rerolls 50 gp gems)
+                ItemKind::Gem if !old.is_magic() => Some(loot::gem(&mut sh.rng, old.value_gp())),
+                ItemKind::Art if !old.is_magic() => Some(loot::art(&mut sh.rng, old.value_gp())),
                 _ if old.is_magic() => loot::random_magic_item(&lib, old.rarity, &mut sh.rng),
                 _ => None,
             };
@@ -389,9 +390,12 @@ fn result(ui: &mut egui::Ui, doc: &mut Doc, sh: &mut Shared, st: &mut State) {
     let title = loot.title.clone();
     let md = loot.as_markdown();
     ui.horizontal_wrapped(|ui| {
+        // (once handed out, the same coins and items can't be given a second time by mistake)
+        let handed_out = title.ends_with(" (handed out)");
         if ui
-            .button(RichText::new("🎁 Hand out…").strong())
+            .add_enabled(!handed_out, egui::Button::new(RichText::new("🎁 Hand out…").strong()))
             .on_hover_text("Split the coins between the party and give each item to someone")
+            .on_disabled_hover_text("Already handed out. Roll new loot to hand out more.")
             .clicked()
         {
             st.handout.start(doc, &title, coins, items.clone());

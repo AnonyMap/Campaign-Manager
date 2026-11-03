@@ -105,7 +105,21 @@ impl ImageLoader for FitImageLoader {
         let cache = self.cache.clone();
         let ctx = ctx.clone();
         let spawned = std::thread::Builder::new().name("image decode".into()).spawn(move || {
-            let result = decode(&bytes, max_side).map(Arc::new);
+            // huge images (over ~16 megapixels) decode one at a time: several big maps at
+            // once could need many GB; small ones (portraits) don't wait for them
+            static ONE_BIG_AT_A_TIME: std::sync::Mutex<()> = std::sync::Mutex::new(());
+            let pixels = image::ImageReader::new(std::io::Cursor::new(&bytes[..]))
+                .with_guessed_format()
+                .ok()
+                .and_then(|r| r.into_dimensions().ok())
+                .map(|(w, h)| w as u64 * h as u64)
+                .unwrap_or(0);
+            let result = if pixels > 16_000_000 {
+                let _turn = ONE_BIG_AT_A_TIME.lock().unwrap_or_else(|e| e.into_inner());
+                decode(&bytes, max_side).map(Arc::new)
+            } else {
+                decode(&bytes, max_side).map(Arc::new)
+            };
             // only store it if nobody forgot the image meanwhile; never hold the cache lock
             // while touching the context (that can deadlock)
             let stored = match cache.lock().get_mut(&key) {

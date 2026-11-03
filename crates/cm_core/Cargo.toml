@@ -9,6 +9,7 @@ description = "Core data model and logic for Campaign Manager (a D&D campaign to
 [dependencies]
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+serde_path_to_error = "0.1"
 uuid = { version = "1", features = ["v4", "serde"] }
 chrono = { version = "0.4", default-features = false, features = ["serde", "clock", "std"] }
 fastrand = "2"

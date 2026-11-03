@@ -60,6 +60,11 @@ pub fn to_json(c: &Campaign) -> Result<String, StorageError> {
     Ok(serde_json::to_string_pretty(c)?)
 }
 
+/// Serialise without indentation: faster and smaller, for in-memory snapshots (undo).
+pub fn to_json_compact(c: &Campaign) -> Result<String, StorageError> {
+    Ok(serde_json::to_string(c)?)
+}
+
 pub fn from_json(s: &str) -> Result<Campaign, StorageError> {
     // Peek at schema version first so a newer file gives a clear error.
     let v: serde_json::Value = serde_json::from_str(s)?;
@@ -70,9 +75,59 @@ pub fn from_json(s: &str) -> Result<Campaign, StorageError> {
             supported: SCHEMA_VERSION,
         });
     }
-    let mut c: Campaign = serde_json::from_value(v)?;
+    let mut c: Campaign = match serde_json::from_value(v.clone()) {
+        Ok(c) => c,
+        Err(e) => repair(v).ok_or(e)?,
+    };
     migrate(&mut c);
     Ok(c)
+}
+
+/// A number that wasn't finite (an "infinite" price, say) is written to JSON as `null`,
+/// which then can't be read back as a number. Rather than refuse to open the campaign,
+/// put 0 in each such place and try again.
+fn repair(mut v: serde_json::Value) -> Option<Campaign> {
+    for _ in 0..1000 {
+        match serde_path_to_error::deserialize::<_, Campaign>(&v) {
+            Ok(c) => return Some(c),
+            Err(e) => {
+                let msg = e.inner().to_string();
+                if !msg.contains("invalid type: null") {
+                    return None;
+                }
+                let path = e.path().to_string();
+                let slot = pointer_mut(&mut v, &path)?;
+                if !slot.is_null() {
+                    return None;
+                }
+                *slot = serde_json::Value::from(0);
+            }
+        }
+    }
+    None
+}
+
+/// Follow a serde_path_to_error path ("npcs[3].core.ac") to the value it names.
+fn pointer_mut<'a>(v: &'a mut serde_json::Value, path: &str) -> Option<&'a mut serde_json::Value> {
+    let mut cur = v;
+    for part in path.split('.') {
+        let (name, idx) = match part.find('[') {
+            Some(b) => (&part[..b], Some(&part[b..])),
+            None => (part, None),
+        };
+        if !name.is_empty() {
+            cur = cur.get_mut(name)?;
+        }
+        if let Some(mut rest) = idx {
+            while let Some(stripped) = rest.strip_prefix('[') {
+                let end = stripped.find(']')?;
+                let i: usize = stripped[..end].parse().ok()?;
+                cur = cur.get_mut(i)?;
+                rest = &stripped[end + 1..];
+            }
+        }
+    }
+    Some(cur)
 }
 
 /// Upgrade older data in place. (Version 1 is the first format.)

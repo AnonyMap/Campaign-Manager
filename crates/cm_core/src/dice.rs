@@ -31,7 +31,7 @@ pub const MAX_DICE: i64 = 10_000;
 /// Maximum number of extra dice an explode modifier may add (matches 5etools).
 pub const MAX_EXPLOSIONS: usize = 999;
 /// Most dice (and sub-rolls) one roll may use, counting re-rolls and explosions.
-pub const MAX_WORK: usize = 20_000;
+pub const MAX_WORK: usize = 50_000;
 /// Longest expression (in numbers, operators and brackets) we'll parse.
 pub const MAX_TOKENS: usize = 400;
 /// Deepest bracket nesting we'll parse.

@@ -901,6 +901,10 @@ impl Npc {
             return;
         }
         if self.uses_statblock(new) {
+            // already one of its forms: it takes the replaced one's place (main stays main)
+            if self.statblock == Some(old) {
+                self.set_main_statblock(new);
+            }
             self.remove_statblock(old);
         } else if self.statblock == Some(old) {
             self.statblock = Some(new);
@@ -1314,6 +1318,39 @@ impl Campaign {
         }
     }
 
+    /// Portrait / token for a combatant: an NPC's own picture, then its stat block's; in
+    /// another form (a wolf), that form's picture comes first.
+    pub fn image_as(&self, src: &CombatantSource, form: Option<Id>) -> Option<String> {
+        let own = self.core_for(src).and_then(|c| c.image.clone());
+        let block = self.statblock_as(src, form).and_then(|s| s.core.image.clone());
+        if self.is_other_form(src, form) { block.or(own) } else { own.or(block) }
+    }
+
+    /// Forget "fights as" choices that no longer name one of the NPC's other forms (after a
+    /// stat block was removed, or another one was made the main one): they mean the main one.
+    pub fn normalize_forms(&mut self) {
+        let valid = |c: &Campaign, src: &CombatantSource, f: Option<Id>| f.is_none() || c.is_other_form(src, f);
+        let mut fix_entries = Vec::new();
+        for (ei, e) in self.encounters.iter().enumerate() {
+            for (k, en) in e.entries.iter().enumerate() {
+                if !valid(self, &en.source, en.form) {
+                    fix_entries.push((ei, k));
+                }
+            }
+        }
+        for (ei, k) in fix_entries {
+            self.encounters[ei].entries[k].form = None;
+        }
+        if let Some(mut r) = self.active_encounter.take() {
+            for c in &mut r.combatants {
+                if !valid(self, &c.source, c.form) {
+                    c.form = None;
+                }
+            }
+            self.active_encounter = Some(r);
+        }
+    }
+
     /// AC and max HP for a combatant source fighting as `form`.
     pub fn combat_numbers(&self, src: &CombatantSource, form: Option<Id>) -> (Option<i32>, Option<i32>) {
         let core = self.core_for(src);
@@ -1630,13 +1667,19 @@ impl Campaign {
                         }
                     }
                 }
-                if let Some(r) = &mut self.active_encounter {
-                    for c in &mut r.combatants {
-                        if c.form == Some(*id) {
+                // a creature fighting in the deleted form goes back to the main one, with
+                // that one's AC and HP (its edits would otherwise land on the NPC's record)
+                if let Some(mut r) = self.active_encounter.take() {
+                    let gone: Vec<Id> = r.combatants.iter().filter(|c| c.form == Some(*id)).map(|c| c.id).collect();
+                    for cid in gone {
+                        r.switch_form(self, cid, None);
+                        if let Some(c) = r.get_mut(cid) {
                             c.form = None;
                         }
                     }
+                    self.active_encounter = Some(r);
                 }
+                self.normalize_forms();
             }
             Link::Item(id) => self.items.retain(|c| c.id != *id),
             Link::Location(id) => {
@@ -1783,8 +1826,35 @@ impl Campaign {
     }
 
     pub fn unassign_card_from_session(&mut self, card: Id, session: Id) {
+        let mut number = None;
         if let Some(s) = self.session_mut(session) {
             s.card_ids.retain(|c| *c != card);
+            number = Some(s.number);
+        }
+        // a card timed "Session N" would otherwise still show up in that session's run
+        if let (Some(n), Some(c)) = (number, self.card_mut(card)) {
+            if c.timing == CardTiming::Session(n) {
+                c.timing = CardTiming::Unscheduled;
+            }
+        }
+    }
+
+    /// Change a session's number; cards timed by the old number follow it (unless another
+    /// session still has that number).
+    pub fn renumber_session(&mut self, session: Id, new: u32) {
+        let Some(old) = self.session(session).map(|s| s.number) else { return };
+        if old == new {
+            return;
+        }
+        if let Some(s) = self.session_mut(session) {
+            s.number = new;
+        }
+        if !self.sessions.iter().any(|s| s.number == old) {
+            for c in &mut self.story_cards {
+                if c.timing == CardTiming::Session(old) {
+                    c.timing = CardTiming::Session(new);
+                }
+            }
         }
     }
 

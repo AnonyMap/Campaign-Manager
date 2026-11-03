@@ -56,6 +56,9 @@ pub struct HpChange {
     /// Death saves before the change (for undo).
     #[serde(default)]
     pub before_death_saves: (u8, u8),
+    /// …and after it (missing in saves from before 0.4.5).
+    #[serde(default)]
+    pub after_death_saves: Option<(u8, u8)>,
 }
 
 impl HpChange {
@@ -110,6 +113,24 @@ pub struct Combatant {
     pub tiebreak: i32,
     /// For an NPC with several stat blocks: the one it's fighting as (None = the main one).
     pub form: Option<Id>,
+    /// Initiative modifier for this creature alone (one-off creatures, or one goblin set
+    /// apart from its stat block). Older saves kept it in `notes` as "init +2".
+    pub init_mod: Option<i32>,
+}
+
+impl Combatant {
+    /// This creature's own initiative modifier, including the old "init +2" notes form.
+    pub fn own_init_mod(&self) -> Option<i32> {
+        self.init_mod.or_else(|| legacy_init_note(&self.notes))
+    }
+}
+
+/// "init +2" (how 0.4.4 and earlier stored a one-off creature's initiative modifier).
+fn legacy_init_note(notes: &str) -> Option<i32> {
+    notes
+        .trim()
+        .strip_prefix("init ")
+        .and_then(|rest| rest.trim().trim_start_matches('+').parse::<i32>().ok())
 }
 
 impl Default for Combatant {
@@ -135,6 +156,7 @@ impl Default for Combatant {
             summoned_by: None,
             tiebreak: 0,
             form: None,
+            init_mod: None,
         }
     }
 }
@@ -329,6 +351,7 @@ impl Combatant {
             adjustment: String::new(),
             rolled: None,
             before_death_saves,
+            after_death_saves: Some((self.death_successes, self.death_failures)),
         };
         self.hp_log.push(change.clone());
         change
@@ -353,9 +376,16 @@ impl Combatant {
         let c = self.hp_log.remove(idx);
         let d_hp = c.after_hp.unwrap_or(0).saturating_sub(c.before_hp.unwrap_or(c.after_hp.unwrap_or(0)));
         let d_temp = c.after_temp.saturating_sub(c.before_temp);
-        // a hit taken while down added a failed death save: take it back too
-        if self.is_player() && c.kind == HpChangeKind::Damage && c.before_hp.map(|h| h <= 0).unwrap_or(false) && c.amount > 0 {
-            self.death_failures = self.death_failures.saturating_sub(1);
+        // take back what the change did to death saves (a failure from a hit while down,
+        // or the successes a stable character lost)
+        if self.is_player() {
+            if let Some((s_after, f_after)) = c.after_death_saves {
+                let (s_before, f_before) = c.before_death_saves;
+                let df = f_after as i32 - f_before as i32;
+                let ds = s_after as i32 - s_before as i32;
+                self.death_failures = (self.death_failures as i32 - df).clamp(0, 3) as u8;
+                self.death_successes = (self.death_successes as i32 - ds).clamp(0, 3) as u8;
+            }
         }
         if let Some(hp) = self.current_hp {
             let mut v = hp.saturating_sub(d_hp);
@@ -531,9 +561,7 @@ impl RunningEncounter {
                             current_hp: entry.max_hp,
                             ..Default::default()
                         };
-                        if let Some(m) = entry.initiative_mod {
-                            c.notes = format!("init {}", crate::model::fmt_mod(m));
-                        }
+                        c.init_mod = entry.initiative_mod;
                         r.combatants.push(c);
                     }
                     src => {
@@ -821,6 +849,8 @@ impl RunningEncounter {
                         self.next_turn();
                     }
                 }
+                // (that step started from someone else's place, so Back mustn't return there)
+                self.turn_history.clear();
             } else if self.turn >= self.combatants.len() {
                 self.turn = 0;
             }
@@ -829,12 +859,8 @@ impl RunningEncounter {
 
     /// Initiative modifier for a combatant, and where it came from.
     pub fn init_source(&self, campaign: &Campaign, c: &Combatant) -> InitSource {
-        // "init +2" in the notes: ad-hoc creatures, or one stat-block creature set apart
-        let noted = c
-            .notes
-            .trim()
-            .strip_prefix("init ")
-            .and_then(|rest| rest.trim().trim_start_matches('+').parse::<i32>().ok());
+        // the creature's own modifier: ad-hoc creatures, or one stat-block creature set apart
+        let noted = c.own_init_mod();
         let from_template = (matches!(c.source, CombatantSource::StatBlock(_)) || campaign.is_other_form(&c.source, c.form)) && noted.is_some();
         match campaign.initiative_source_as(&c.source, c.form) {
             Some(s) if !from_template => s,
@@ -1017,6 +1043,8 @@ impl RunningEncounter {
         if self.skips(0) {
             self.next_turn();
         }
+        // (passing over a downed first creature isn't a turn Back should return to)
+        self.turn_history.clear();
     }
 
     /// Downed monsters and NPCs are passed over (PCs keep their turn for death saves).
@@ -1090,6 +1118,19 @@ impl RunningEncounter {
         }
     }
 
+    /// Where Next from position `i` would go (passing over downed monsters), and whether that
+    /// wraps into a new round.
+    fn next_from(&self, i: usize) -> (usize, bool) {
+        let n = self.combatants.len();
+        for k in 1..=n {
+            let j = (i + k) % n;
+            if !self.skips(j) || k == n {
+                return (j, i + k >= n);
+            }
+        }
+        (i, false)
+    }
+
     /// Step back one turn (passing over downed monsters, like Next). Going back past the top
     /// of a round returns to the previous round and puts back the condition timers that the
     /// new round had counted down.
@@ -1105,7 +1146,13 @@ impl RunningEncounter {
         let here = (self.combatants[self.turn].id, self.round);
         if let Some(&(from_id, from_round, to_id, to_round)) = self.turn_history.last() {
             if (to_id, to_round) == here && from_round <= self.round {
-                if let Some(idx) = self.combatants.iter().position(|c| c.id == from_id) {
+                // only while the order still leads from there to here (no one was moved,
+                // added or removed in between)
+                let idx = self.combatants.iter().position(|c| c.id == from_id).filter(|&i| {
+                    let (next, wrapped) = self.next_from(i);
+                    next == self.turn && wrapped == (from_round < self.round)
+                });
+                if let Some(idx) = idx {
                     self.turn_history.pop();
                     while self.round > from_round.max(1) {
                         self.untick_conditions();
@@ -1349,10 +1396,11 @@ impl RunningEncounter {
             Some(core) => core.initiative_mod = value,
             None => {
                 if let Some(c) = self.get_mut(id) {
-                    c.notes = match value {
-                        Some(v) => format!("init {}", crate::model::fmt_mod(v)),
-                        None => String::new(),
-                    };
+                    c.init_mod = value;
+                    // an old "init +2" note would otherwise come back when the value is cleared
+                    if legacy_init_note(&c.notes).is_some() {
+                        c.notes.clear();
+                    }
                 }
             }
         }
@@ -1400,11 +1448,7 @@ impl RunningEncounter {
                 max_hp: if c.source == CombatantSource::AdHoc { c.max_hp } else { None },
                 ac: if c.source == CombatantSource::AdHoc { c.ac } else { None },
                 // one-off creatures keep their "init +N" note as the entry's modifier
-                initiative_mod: if c.source == CombatantSource::AdHoc {
-                    c.notes.trim().strip_prefix("init ").and_then(|r| r.trim().trim_start_matches('+').parse().ok())
-                } else {
-                    None
-                },
+                initiative_mod: if c.source == CombatantSource::AdHoc { c.own_init_mod() } else { None },
                 form: c.form,
                 ..Default::default()
             });

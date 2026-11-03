@@ -142,6 +142,10 @@ pub fn show(ui: &mut egui::Ui, doc: &mut Doc, sh: &mut Shared, st: &mut State) {
         });
         let giver_list = givers(doc);
         let used: Vec<Link> = doc.c.quests().iter().filter_map(|c| c.quest.as_ref().and_then(|q| q.giver.clone())).collect();
+        // a filter whose choice has gone (that giver no longer gives a quest) would hide everything
+        if st.giver.as_ref().map(|g| !used.contains(g)).unwrap_or(false) {
+            st.giver = None;
+        }
         if !used.is_empty() {
             egui::ComboBox::from_id_salt("quest_giver_f")
                 .width(200.0)

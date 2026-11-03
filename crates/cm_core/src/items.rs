@@ -622,6 +622,11 @@ impl Coins {
 
 /// "50 gp", "5 sp", "1,500 gp", "2 pp", 25 → gp.
 pub fn parse_cost(v: &Value) -> Option<f64> {
+    // (a cost too large to be a real number, "1e400" or 400 digits, counts as no cost)
+    parse_cost_raw(v).filter(|c| c.is_finite() && *c >= 0.0)
+}
+
+fn parse_cost_raw(v: &Value) -> Option<f64> {
     match v {
         Value::Number(n) => n.as_f64(),
         Value::String(s) => parse_cost_text(s),
@@ -652,7 +657,7 @@ pub fn parse_cost_text(s: &str) -> Option<f64> {
     let num: String = t.chars().take_while(|c| c.is_ascii_digit() || *c == '.').collect();
     let n: f64 = num.parse().ok()?;
     let unit = t[num.len()..].trim().split_whitespace().next().unwrap_or("gp");
-    Some(n * unit_factor(unit))
+    Some(n * unit_factor(unit)).filter(|c| c.is_finite())
 }
 
 /// "50 gp", "5 sp", "1,500 gp".

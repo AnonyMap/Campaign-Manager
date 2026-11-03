@@ -386,7 +386,7 @@ fn list_panel(ui: &mut egui::Ui, doc: &mut Doc, sh: &mut Shared, st: &mut State)
                     let list = st.srd_cache.as_ref().map(|c| c.3.clone()).unwrap_or_default();
                     ui.weak(format!("{} shown", list.len()));
                     // only the visible rows are laid out
-                    let row_h = ui.spacing().interact_size.y + ui.spacing().item_spacing.y;
+                    let row_h = crate::ui_util::list_row_height(ui);
                     egui::ScrollArea::vertical()
                         .id_salt("srd_rows")
                         .auto_shrink([false, false])
@@ -553,7 +553,11 @@ fn bulk_bar(ui: &mut egui::Ui, doc: &mut Doc, sh: &mut Shared, st: &mut State, s
                 ui.horizontal(|ui| {
                     if ui.button(RichText::new("Delete").color(ui.visuals().error_fg_color).strong()).clicked() {
                         let n = doc.c.delete_statblocks(&ids);
-                        sh.toast(format!("Deleted {} (Ctrl+Z to undo)", ui_util::plural(n, "stat block")));
+                        sh.toast(format!(
+                            "Deleted {} ({} to undo)",
+                            ui_util::plural(n, "stat block"),
+                            crate::shortcuts::label(ui.ctx(), &crate::shortcuts::UNDO)
+                        ));
                         st.checked.clear();
                         st.confirm_delete = None;
                         st.select_mode = false;

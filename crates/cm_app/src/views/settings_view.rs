@@ -160,7 +160,10 @@ fn appearance(ui: &mut egui::Ui, st: &mut State, s: &mut AppSettings) {
         ui.horizontal(|ui| {
             ui.label("Autosave");
             ui.add(egui::DragValue::new(&mut s.autosave_secs).range(0..=600).suffix(" s after a change"));
-            ui.weak("(0 = off; Ctrl+S always saves)");
+            ui.weak(format!(
+                "(0 = off; {} always saves)",
+                crate::shortcuts::label(ui.ctx(), &crate::shortcuts::SAVE)
+            ));
         });
         ui.end_row();
         ui.label("Startup");

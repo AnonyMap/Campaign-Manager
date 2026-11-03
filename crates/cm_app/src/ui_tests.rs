@@ -167,7 +167,57 @@ fn monkey_clicks_and_types_everywhere() {
                 modifiers: Default::default(),
             });
         };
-        if !inputs.is_empty() && rng.u8(..4) == 0 {
+        if rng.u8(..5) == 0 {
+            // a random keyboard shortcut (or a plain key: arrows, N, B, R, A, Esc, Enter, Tab)
+            let cmd = egui::Modifiers::COMMAND;
+            let keys: [(egui::Modifiers, egui::Key); 30] = [
+                (cmd, egui::Key::Z),
+                (cmd.plus(egui::Modifiers::SHIFT), egui::Key::Z),
+                (cmd, egui::Key::P),
+                (cmd, egui::Key::N),
+                (cmd.plus(egui::Modifiers::SHIFT), egui::Key::N),
+                (cmd, egui::Key::OpenBracket),
+                (cmd, egui::Key::CloseBracket),
+                (cmd, egui::Key::Num4),
+                (cmd, egui::Key::Num8),
+                (cmd, egui::Key::B),
+                (cmd, egui::Key::I),
+                (cmd, egui::Key::K),
+                (cmd, egui::Key::E),
+                (cmd.plus(egui::Modifiers::SHIFT), egui::Key::X),
+                (cmd.plus(egui::Modifiers::SHIFT), egui::Key::Num9),
+                (cmd.plus(egui::Modifiers::ALT), egui::Key::Num1),
+                (cmd, egui::Key::Slash),
+                (cmd, egui::Key::D),
+                (cmd, egui::Key::Equals),
+                (egui::Modifiers::NONE, egui::Key::ArrowDown),
+                (egui::Modifiers::NONE, egui::Key::ArrowUp),
+                (egui::Modifiers::NONE, egui::Key::End),
+                (egui::Modifiers::NONE, egui::Key::N),
+                (egui::Modifiers::NONE, egui::Key::B),
+                (egui::Modifiers::NONE, egui::Key::R),
+                (egui::Modifiers::NONE, egui::Key::A),
+                (egui::Modifiers::NONE, egui::Key::Escape),
+                (egui::Modifiers::NONE, egui::Key::Enter),
+                (egui::Modifiers::NONE, egui::Key::Tab),
+                (egui::Modifiers::SHIFT, egui::Key::Tab),
+            ];
+            let (mods, key) = keys[rng.usize(..keys.len())];
+            // Tab outside a text box moves egui's keyboard focus, which can leave the test
+            // harness's accessibility tree pointing at a widget not drawn this frame (a
+            // harness-only panic; the app itself is built without accessibility support)
+            if key == egui::Key::Tab && !crate::shortcuts::typing(&h.ctx) {
+                continue;
+            }
+            trail.push(format!("key {mods:?} {key:?}"));
+            h.event(egui::Event::Key {
+                key,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers: mods,
+            });
+        } else if !inputs.is_empty() && rng.u8(..4) == 0 {
             let (label, pos) = inputs[rng.usize(..inputs.len())].clone();
             let text = texts[rng.usize(..texts.len())];
             trail.push(format!("type {text:?} into {label:?}"));
@@ -281,4 +331,149 @@ fn big_campaign_frame_times() {
         doc.track(false);
     }
     eprintln!("change tracking: {:.1} ms per check", t.elapsed().as_secs_f64() * 100.0);
+}
+
+#[test]
+fn keyboard_shortcuts_work() {
+    let mut h = harness(campaign("keys"));
+    h.run_steps(3);
+    let press = |h: &mut Harness<'_, App>, mods: egui::Modifiers, key: egui::Key| {
+        h.event(egui::Event::Key {
+            key,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: mods,
+        });
+        h.run_steps(3);
+    };
+    let cmd = egui::Modifiers::COMMAND;
+    // ⌘/Ctrl + 3 = story cards, ⌘/Ctrl + 5 = NPCs
+    press(&mut h, cmd, egui::Key::Num3);
+    assert_eq!(h.state().view, View::Cards);
+    press(&mut h, cmd, egui::Key::Num5);
+    assert_eq!(h.state().view, View::Npcs);
+    // ↓ picks the first NPC, ↓ again the second, ↑ back to the first
+    press(&mut h, egui::Modifiers::NONE, egui::Key::ArrowDown);
+    let first = h.state().vs.npcs.selected;
+    assert!(first.is_some(), "↓ didn't select an NPC");
+    press(&mut h, egui::Modifiers::NONE, egui::Key::ArrowDown);
+    let second = h.state().vs.npcs.selected;
+    assert!(second.is_some() && second != first);
+    press(&mut h, egui::Modifiers::NONE, egui::Key::ArrowUp);
+    assert_eq!(h.state().vs.npcs.selected, first);
+    // End goes to the last one, and ↓ there stays put
+    press(&mut h, egui::Modifiers::NONE, egui::Key::End);
+    let last = h.state().vs.npcs.selected;
+    press(&mut h, egui::Modifiers::NONE, egui::Key::ArrowDown);
+    assert_eq!(h.state().vs.npcs.selected, last);
+    // back / forward
+    press(&mut h, cmd, egui::Key::OpenBracket);
+    assert_ne!(h.state().vs.npcs.selected, last);
+    press(&mut h, cmd, egui::Key::CloseBracket);
+    assert_eq!(h.state().vs.npcs.selected, last);
+    press(&mut h, cmd, egui::Key::Num3);
+    press(&mut h, cmd, egui::Key::OpenBracket);
+    assert_eq!(h.state().view, View::Npcs);
+    // new card / new NPC
+    let cards = h.state().doc.as_ref().unwrap().c.story_cards.len();
+    press(&mut h, cmd, egui::Key::N);
+    assert_eq!(h.state().doc.as_ref().unwrap().c.story_cards.len(), cards + 1);
+    assert_eq!(h.state().view, View::Cards);
+    let npcs = h.state().doc.as_ref().unwrap().c.npcs.len();
+    press(&mut h, cmd.plus(egui::Modifiers::SHIFT), egui::Key::N);
+    assert_eq!(h.state().doc.as_ref().unwrap().c.npcs.len(), npcs + 1);
+    // text size
+    let size = h.state().settings.font_size;
+    press(&mut h, cmd, egui::Key::Equals);
+    assert_eq!(h.state().settings.font_size, size + 1.0);
+    press(&mut h, cmd, egui::Key::Num0);
+    assert_eq!(h.state().settings.font_size, 14.0);
+    // Go to…: type a name and press Enter
+    press(&mut h, cmd, egui::Key::P);
+    assert!(h.state().go_to.is_some());
+    h.event(egui::Event::Text("Vask".into()));
+    h.run_steps(3);
+    press(&mut h, egui::Modifiers::NONE, egui::Key::Enter);
+    assert!(h.state().go_to.is_none());
+    assert_eq!(h.state().view, View::Npcs);
+    let vask = h
+        .state()
+        .doc
+        .as_ref()
+        .unwrap()
+        .c
+        .npcs
+        .iter()
+        .find(|n| n.core.name.contains("Vask"))
+        .map(|n| n.id);
+    assert_eq!(h.state().vs.npcs.selected, vask);
+    // shortcut list opens and Esc closes it
+    press(&mut h, cmd, egui::Key::Slash);
+    assert!(h.state().show_shortcuts);
+    press(&mut h, egui::Modifiers::NONE, egui::Key::Escape);
+    assert!(!h.state().show_shortcuts);
+    // combat: A opens the add window; N starts the fight
+    press(&mut h, cmd, egui::Key::Num8);
+    assert_eq!(h.state().view, View::Combat);
+    press(&mut h, egui::Modifiers::NONE, egui::Key::N);
+    let started = h.state().doc.as_ref().unwrap().c.active_encounter.as_ref().map(|e| e.started);
+    assert!(started != Some(false), "N didn't start the fight");
+}
+
+#[test]
+fn editor_shortcuts_format_text() {
+    let mut h = harness(campaign("editor"));
+    h.run_steps(3);
+    h.state_mut().new_card();
+    h.run_steps(3);
+    let id = h.state().vs.cards.selected.unwrap();
+    // focus the card's text box: the multi-line input on screen
+    let pos = {
+        let n = h.query_all(by().role(Role::MultilineTextInput)).next().expect("no text box");
+        n.rect().center()
+    };
+    h.event(egui::Event::PointerButton {
+        pos,
+        button: egui::PointerButton::Primary,
+        pressed: true,
+        modifiers: Default::default(),
+    });
+    h.event(egui::Event::PointerButton {
+        pos,
+        button: egui::PointerButton::Primary,
+        pressed: false,
+        modifiers: Default::default(),
+    });
+    h.run_steps(2);
+    h.event(egui::Event::Text("goblins".into()));
+    h.run_steps(2);
+    let cmd = egui::Modifiers::COMMAND;
+    for (mods, key) in [(cmd, egui::Key::A), (cmd, egui::Key::B)] {
+        h.event(egui::Event::Key {
+            key,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: mods,
+        });
+        h.run_steps(2);
+    }
+    let body = h.state().doc.as_ref().unwrap().c.card(id).unwrap().body.clone();
+    assert_eq!(body, "**goblins**");
+    for (mods, key) in [
+        (cmd.plus(egui::Modifiers::SHIFT), egui::Key::Num8),
+        (cmd.plus(egui::Modifiers::ALT), egui::Key::Num2),
+    ] {
+        h.event(egui::Event::Key {
+            key,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: mods,
+        });
+        h.run_steps(2);
+    }
+    let body = h.state().doc.as_ref().unwrap().c.card(id).unwrap().body.clone();
+    assert!(body.starts_with("## "), "{body:?}");
 }

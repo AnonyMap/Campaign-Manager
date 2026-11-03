@@ -253,7 +253,10 @@ pub fn show(ui: &mut egui::Ui, doc: &mut Doc, sh: &mut Shared, st: &mut State) {
 
     if let Some((drag, to_thread, col)) = dropped {
         let mode = st.mode;
-        if mode == Mode::Session {
+        // only a move to another column changes when the card happens (dropping it back in
+        // its own column, or just into another thread's row, keeps its date and plans)
+        let from_col = doc.c.card(drag.card).map(|c| column_of(&doc.c, c, mode));
+        if mode == Mode::Session && from_col != Some(col) {
             // also moves it between session plans, so it doesn't stay in the old one
             doc.c.move_card_to_session(
                 drag.card,

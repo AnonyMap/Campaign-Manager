@@ -79,7 +79,11 @@ fn editor(ui: &mut egui::Ui, doc: &mut Doc, sh: &mut Shared, st: &mut State, id:
     });
     egui::Grid::new(("sessgrid", id)).num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
         ui.label("Number");
-        ui.add(egui::DragValue::new(&mut s.number).range(0..=9999));
+        // (applied at the end, through the campaign, so cards timed by number follow)
+        let mut num = s.number;
+        if ui.add(egui::DragValue::new(&mut num).range(0..=9999)).changed() {
+            ui.data_mut(|d| d.insert_temp(egui::Id::new(("renumber", id)), num));
+        }
         ui.end_row();
         ui.label("Status");
         ui.horizontal(|ui| {
@@ -275,5 +279,8 @@ fn editor(ui: &mut egui::Ui, doc: &mut Doc, sh: &mut Shared, st: &mut State, id:
     sh.vault = vault;
     if let Some(s) = doc.c.session_mut(id) {
         s.links = links;
+    }
+    if let Some(n) = ui.data_mut(|d| d.remove_temp::<u32>(egui::Id::new(("renumber", id)))) {
+        doc.c.renumber_session(id, n);
     }
 }

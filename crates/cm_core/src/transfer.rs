@@ -426,6 +426,7 @@ pub fn merge(target: &mut Campaign, src: &Campaign, parts: &[Part], dup: Duplica
     let mut r = MergeReport::default();
     // old session number → new, for imported sessions that had to be renumbered
     let mut renumbered: HashMap<u32, u32> = HashMap::new();
+    let cards_before: HashSet<Id> = target.story_cards.iter().map(|c| c.id).collect();
     macro_rules! put {
         ($field:ident) => {
             for x in &src.$field {
@@ -452,12 +453,14 @@ pub fn merge(target: &mut Campaign, src: &Campaign, parts: &[Part], dup: Duplica
             Part::Sessions => {
                 let had_sessions = !target.sessions.is_empty();
                 let before: HashMap<Id, u32> = target.sessions.iter().map(|s| (s.id, s.number)).collect();
+                let src_ids: HashSet<Id> = src.sessions.iter().map(|s| s.id).collect();
                 put!(sessions);
-                // sessions that arrive with a number this campaign already uses go on the end
-                // ("Session 1" twice would put the same cards in both)
-                let mut used: BTreeSet<u32> = before.values().copied().collect();
-                let mut next = used.iter().max().map(|m| m + 1).unwrap_or(1);
-                for s in target.sessions.iter_mut().filter(|s| !before.contains_key(&s.id)) {
+                // sessions that arrive (or replace one) with a number another session here
+                // already uses go on the end ("Session 1" twice would put the same cards in both)
+                let arrived = |s: &crate::model::Session| !before.contains_key(&s.id) || (dup == Duplicates::Replace && src_ids.contains(&s.id));
+                let mut used: BTreeSet<u32> = target.sessions.iter().filter(|s| !arrived(s)).map(|s| s.number).collect();
+                let mut next = target.sessions.iter().map(|s| s.number).max().map(|m| m + 1).unwrap_or(1);
+                for s in target.sessions.iter_mut().filter(|s| arrived(s)) {
                     if used.contains(&s.number) {
                         while used.contains(&next) {
                             next += 1;
@@ -511,10 +514,12 @@ pub fn merge(target: &mut Campaign, src: &Campaign, parts: &[Part], dup: Duplica
             }
         }
     }
-    // imported cards planned for a renumbered session follow it
-    if !renumbered.is_empty() {
+    // cards that came in with this import and were planned for a renumbered session follow
+    // it (cards that were already here keep theirs)
+    if !renumbered.is_empty() && parts.contains(&Part::Story) {
         let from_src: HashSet<Id> = src.story_cards.iter().map(|c| c.id).collect();
-        for c in target.story_cards.iter_mut().filter(|c| from_src.contains(&c.id)) {
+        let arrived = |id: &Id| from_src.contains(id) && (!cards_before.contains(id) || dup == Duplicates::Replace);
+        for c in target.story_cards.iter_mut().filter(|c| arrived(&c.id)) {
             if let CardTiming::Session(n) = c.timing {
                 if let Some(new) = renumbered.get(&n) {
                     c.timing = CardTiming::Session(*new);

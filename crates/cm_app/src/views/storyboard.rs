@@ -564,6 +564,18 @@ fn canvas(ui: &mut egui::Ui, doc: &mut Doc, sh: &mut Shared, st: &mut State) {
             st.linking = None;
         }
     }
+    // the mouse was released while the card it started from was off screen (its drag end is
+    // never seen then): finish the link here, so linking never gets stuck
+    if let Some(from) = st.linking {
+        if !ui.input(|i| i.pointer.primary_down()) {
+            if let Some(p) = ui.ctx().pointer_interact_pos() {
+                if let Some((to, _)) = rects.iter().find(|(id, r)| **id != from && r.contains(p)) {
+                    link_made = Some((from, *to));
+                }
+            }
+            st.linking = None;
+        }
+    }
     // the link being drawn
     if let (Some(from), Some(p)) = (st.linking, pointer) {
         if let Some(r) = rects.get(&from) {

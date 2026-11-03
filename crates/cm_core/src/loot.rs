@@ -787,6 +787,8 @@ impl Default for StockEntry {
 
 /// Round a price the way a shopkeeper would.
 pub fn shop_price(v: f64) -> f64 {
+    // (prices stay real, sensible numbers: an "infinite" one couldn't be saved)
+    let v = if v.is_finite() { v.clamp(0.0, 10_000_000.0) } else { 0.0 };
     if v >= 1000.0 {
         (v / 50.0).round() * 50.0
     } else if v >= 100.0 {

@@ -29,8 +29,12 @@ pub struct State {
     targets: Vec<(Id, Portion)>,
     group_amount: String,
     add: AddState,
+    /// Next (1) / Back (-1) / Start (2) asked for from the keyboard this frame.
+    key_go: i32,
     /// Scroll the turn order to whoever's turn it is (after Next / Back).
     scroll_to_current: bool,
+    /// Scroll the selected row into view (after ↑ / ↓).
+    scroll_to_selected: bool,
 }
 
 #[derive(Default, Clone, Copy, PartialEq, Eq)]
@@ -128,6 +132,7 @@ pub fn show(ui: &mut egui::Ui, doc: &mut Doc, sh: &mut Shared, st: &mut State) {
     let was_none = doc.c.active_encounter.is_none();
     let mut enc = doc.c.active_encounter.take().unwrap_or_else(|| RunningEncounter::new("Encounter"));
     let shown_before = st.selected;
+    keyboard(ui, doc, sh, st, &mut enc);
     toolbar(ui, doc, sh, st, &mut enc);
     turn_bar(ui, doc, sh, st, &mut enc);
     ui.separator();
@@ -180,22 +185,50 @@ pub fn show(ui: &mut egui::Ui, doc: &mut Doc, sh: &mut Shared, st: &mut State) {
     doc.c.active_encounter = if untouched { None } else { Some(enc) };
 }
 
+/// Single keys for running a fight, when nothing is being typed and no window is open:
+/// N / → next turn (or start), B / ← back, ↑ / ↓ select, R roll NPC initiative, A add.
+fn keyboard(ui: &mut egui::Ui, doc: &mut Doc, sh: &mut Shared, st: &mut State, enc: &mut RunningEncounter) {
+    let ctx = ui.ctx().clone();
+    if crate::shortcuts::typing(&ctx) || egui::Popup::is_any_open(&ctx) || st.add.open {
+        return;
+    }
+    let key = |k: egui::Key| ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, k));
+    if !enc.combatants.is_empty() {
+        if key(egui::Key::N) || key(egui::Key::ArrowRight) {
+            st.key_go = if enc.started { 1 } else { 2 };
+        } else if enc.started && (key(egui::Key::B) || key(egui::Key::ArrowLeft)) {
+            st.key_go = -1;
+        }
+        let ids: Vec<Id> = enc.combatants.iter().map(|c| c.id).collect();
+        if crate::shortcuts::list_keys(&ctx, &ids, &mut st.selected).is_some() {
+            st.scroll_to_selected = true;
+        }
+        if key(egui::Key::R) {
+            let rolls = enc.roll_npc_initiative(&doc.c, st.only_missing, &mut sh.rng);
+            sh.toast(format!("Rolled initiative for {}", ui_util::plural(rolls.len(), "creature")));
+        }
+    }
+    if key(egui::Key::A) {
+        st.add.open_for(None);
+    }
+}
+
 /// Whose turn it is, with big Back / Next buttons (N and B on the keyboard), or the
 /// Start button before combat begins.
 fn turn_bar(ui: &mut egui::Ui, doc: &mut Doc, sh: &mut Shared, st: &mut State, enc: &mut RunningEncounter) {
     if enc.combatants.is_empty() {
         return;
     }
-    let mut go: i32 = 0;
-    // keyboard: N = next turn, B = back (only when not typing in a box)
-    if enc.started && !ui.ctx().wants_keyboard_input() {
-        ui.input_mut(|i| {
-            if i.consume_key(egui::Modifiers::NONE, egui::Key::N) {
-                go = 1;
-            } else if i.consume_key(egui::Modifiers::NONE, egui::Key::B) {
-                go = -1;
-            }
-        });
+    // from the keyboard (see `keyboard`)
+    let mut go: i32 = std::mem::take(&mut st.key_go);
+    if go == 2 {
+        if !enc.started {
+            enc.start(&doc.c);
+            st.selected = enc.current().map(|c| c.id);
+            st.scroll_to_current = true;
+            sh.toast("Round 1");
+        }
+        go = 0;
     }
     let accent = ui.visuals().selection.stroke.color;
     let big = |text: RichText| egui::Button::new(text.size(16.0)).min_size(egui::vec2(110.0, 34.0));
@@ -257,11 +290,7 @@ fn turn_bar(ui: &mut egui::Ui, doc: &mut Doc, sh: &mut Shared, st: &mut State, e
                 // who's acting now
                 let dir = doc.dir.clone();
                 if let Some(c) = enc.current().cloned() {
-                    let image = doc
-                        .c
-                        .core_for(&c.source)
-                        .and_then(|core| core.image.clone())
-                        .or_else(|| doc.c.statblock_for(&c.source).and_then(|s| s.core.image.clone()));
+                    let image = doc.c.image_as(&c.source, c.form);
                     if token(ui, &dir, image.as_deref(), &c.name, c.is_player(), c.friendly(), 34.0).clicked() {
                         st.selected = Some(c.id);
                     }
@@ -423,14 +452,7 @@ fn table(ui: &mut egui::Ui, doc: &mut Doc, sh: &mut Shared, st: &mut State, enc:
     let ids: Vec<Id> = enc.combatants.iter().map(|c| c.id).collect();
     let dir = doc.dir.clone();
     // token image per combatant (an NPC without its own picture uses its stat block's)
-    let tokens: std::collections::HashMap<Id, Option<String>> = enc
-        .combatants
-        .iter()
-        .map(|c| {
-            let own = doc.c.core_for(&c.source).and_then(|core| core.image.clone());
-            (c.id, own.or_else(|| doc.c.statblock_for(&c.source).and_then(|s| s.core.image.clone())))
-        })
-        .collect();
+    let tokens: std::collections::HashMap<Id, Option<String>> = enc.combatants.iter().map(|c| (c.id, doc.c.image_as(&c.source, c.form))).collect();
     let group_names: std::collections::HashMap<Id, Vec<String>> = enc
         .combatants
         .iter()
@@ -807,6 +829,10 @@ fn table(ui: &mut egui::Ui, doc: &mut Doc, sh: &mut Shared, st: &mut State, enc:
                 st.scroll_to_current = false;
             }
         }
+        if st.scroll_to_selected && st.selected == Some(cid) {
+            rr.scroll_to_me(None);
+            st.scroll_to_selected = false;
+        }
         // A coloured bar down the left edge joins combatants that share an initiative roll.
         if let Some(g) = enc.get(cid).and_then(|c| c.init_group) {
             let h = (g.as_u128() % 360) as f32 / 360.0;
@@ -858,6 +884,8 @@ fn table(ui: &mut egui::Ui, doc: &mut Doc, sh: &mut Shared, st: &mut State, enc:
         for m in enc.group_members(id) {
             if let Some(c) = enc.get_mut(m) {
                 c.initiative = value;
+                // a typed number replaces any place the row was dragged to
+                c.tiebreak = 0;
                 c.initiative_note = if value.is_some() { "entered manually".into() } else { String::new() };
             }
         }
@@ -1111,7 +1139,7 @@ fn add_window(ctx: &egui::Context, doc: &mut Doc, sh: &mut Shared, st: &mut Stat
             if let Some(m) = a.adhoc_init_mod {
                 for id in &ids {
                     if let Some(c) = enc.get_mut(*id) {
-                        c.notes = format!("init {}", fmt_mod(m));
+                        c.init_mod = Some(m);
                     }
                 }
             }
@@ -1413,9 +1441,7 @@ fn detail(ui: &mut egui::Ui, doc: &mut Doc, sh: &mut Shared, st: &mut State, enc
                 n.core.name = c.name.trim_end_matches(|ch: char| ch.is_ascii_digit()).trim().to_string();
                 n.core.max_hp = c.max_hp;
                 n.core.ac = c.ac;
-                if let Some(rest) = c.notes.strip_prefix("init ") {
-                    n.core.initiative_mod = rest.trim().trim_start_matches('+').parse().ok();
-                }
+                n.core.initiative_mod = c.own_init_mod();
                 c.source = CombatantSource::Npc(n.id);
                 doc.c.npcs.push(n);
                 sh.toast("Created an NPC for this creature");
@@ -1535,11 +1561,7 @@ fn detail(ui: &mut egui::Ui, doc: &mut Doc, sh: &mut Shared, st: &mut State, enc
     }
 
     // portrait (an NPC without one shows its stat block's)
-    let portrait = doc
-        .c
-        .core_for(&src)
-        .and_then(|c| c.image.clone())
-        .or_else(|| doc.c.statblock_for(&src).and_then(|s| s.core.image.clone()));
+    let portrait = doc.c.image_as(&src, enc.get(cid).and_then(|c| c.form));
     if let Some(img) = portrait {
         if ui_util::image_thumb(ui, &dir, &img, egui::vec2(120.0, 120.0)).clicked() {
             sh.actions.push(Action::ViewImage(img));
@@ -1661,7 +1683,7 @@ fn detail(ui: &mut egui::Ui, doc: &mut Doc, sh: &mut Shared, st: &mut State, enc
                 })
                 .collect();
             // (the stat block below shows abilities when there is one)
-            if !abil.is_empty() && doc.c.statblock_for(&src).is_none() {
+            if !abil.is_empty() && doc.c.statblock_as(&src, enc.get(cid).and_then(|c| c.form)).is_none() {
                 ui.label("Abilities");
                 ui.add(egui::Label::new(abil.join("  ")).wrap());
                 ui.end_row();

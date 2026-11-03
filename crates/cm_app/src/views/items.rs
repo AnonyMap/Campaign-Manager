@@ -192,7 +192,7 @@ fn list_panel(ui: &mut egui::Ui, doc: &mut Doc, sh: &mut Shared, st: &mut State)
                 if doc.c.items.is_empty() {
                     ui.weak("No items yet. Make one, import a book's items, or copy some from the SRD 5.2 tab. The loot generator and shops use the SRD list as well as yours.");
                 }
-                let row_h = ui.spacing().interact_size.y + ui.spacing().item_spacing.y;
+                let row_h = crate::ui_util::list_row_height(ui);
                 egui::ScrollArea::vertical().id_salt("items_rows").show_rows(ui, row_h, list.len(), |ui, range| {
                     for it in &list[range] {
                         let text = RichText::new(format!("{}  ·  {}", it.name, format_gp(it.value_gp()))).color(rarity_color(ui, it.rarity));
@@ -221,7 +221,7 @@ fn list_panel(ui: &mut egui::Ui, doc: &mut Doc, sh: &mut Shared, st: &mut State)
                     Sort::Rarity => list.sort_by(|a, b| a.1.rarity.cmp(&b.1.rarity).then(a.1.name.cmp(&b.1.name))),
                 }
                 ui.weak(format!("{} shown", list.len()));
-                let row_h = ui.spacing().interact_size.y + ui.spacing().item_spacing.y;
+                let row_h = crate::ui_util::list_row_height(ui);
                 egui::ScrollArea::vertical().id_salt("srd_items_rows").show_rows(ui, row_h, list.len(), |ui, range| {
                     for (idx, it) in &list[range] {
                         let text = RichText::new(format!("{}  ·  {}", it.name, format_gp(it.value_gp()))).color(rarity_color(ui, it.rarity));

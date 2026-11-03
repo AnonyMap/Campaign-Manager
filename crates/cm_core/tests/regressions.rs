@@ -347,3 +347,298 @@ fn deep_or_long_dice_are_refused_not_crashing() {
     let _ = dice::roll(&neg); // fine either way, as long as it doesn't crash
     assert_eq!(dice::roll("((((2))))+3").unwrap().total, 5.0);
 }
+
+#[test]
+fn a_campaign_with_an_infinite_number_still_opens() {
+    let mut c = Campaign::new("x");
+    let mut it = Item::named("Godslayer", ItemKind::Weapon, Rarity::Legendary, Some(1.0));
+    it.weight_lb = Some(2.0);
+    c.items.push(it);
+    let mut sb = cm_core::bestiary::StatBlock::default();
+    sb.core.name = "Ogre".into();
+    c.statblocks.push(sb);
+    let mut json: serde_json::Value = serde_json::to_value(&c).unwrap();
+    // what serde_json writes for f64::INFINITY in a plain f64 field
+    let place = cm_core::places::Location::default();
+    let mut pv = serde_json::to_value(&place).unwrap();
+    if let Some(obj) = pv.as_object_mut() {
+        obj.insert("x".into(), serde_json::Value::Null);
+    }
+    json["locations"] = serde_json::json!([pv]);
+    // find any f64 field in the dice history and null it, as an infinite total would
+    json["dice"]["history"] = serde_json::json!([{ "id": cm_core::new_id(), "label": "", "expression": "1", "total": null, "breakdown": [] }]);
+    let text = serde_json::to_string(&json).unwrap();
+    let back = cm_core::storage::from_json(&text).expect("should open with the bad numbers set to 0");
+    assert_eq!(back.dice.history.len(), 1);
+    assert_eq!(back.dice.history[0].total, 0.0);
+}
+
+// ---- second review (November 2026) -------------------------------------------------
+
+fn three_in_order() -> (Campaign, RunningEncounter, [Id; 3]) {
+    let c = Campaign::new("x");
+    let mut r = RunningEncounter::new("x");
+    let a = r.add_adhoc("A", Some(5), None);
+    let b = r.add_adhoc("B", Some(5), None);
+    let cc = r.add_adhoc("C", Some(5), None);
+    r.set_initiative(a, Some(20));
+    r.set_initiative(b, Some(15));
+    r.set_initiative(cc, Some(10));
+    r.start(&c);
+    (c, r, [a, b, cc])
+}
+
+#[test]
+fn back_after_reordering_doesnt_skip_anyone() {
+    let (c, mut r, [a, b, cc]) = three_in_order();
+    r.next_turn(); // B
+    r.move_before(&c, a, None); // A dragged to the end: B, C, A
+    r.prev_turn();
+    r.next_turn();
+    // whatever Back did, C must still get a turn in round 1
+    let mut seen = vec![r.current().unwrap().id];
+    while r.round == 1 {
+        r.next_turn();
+        if r.round == 1 {
+            seen.push(r.current().unwrap().id);
+        }
+    }
+    assert!(seen.contains(&cc), "C skipped: {seen:?} (b={b:?})");
+}
+
+#[test]
+fn back_never_lands_on_a_downed_monster_that_had_no_turn() {
+    // start with the top creature already down
+    let c = Campaign::new("x");
+    let mut r = RunningEncounter::new("x");
+    let m = r.add_adhoc("M", Some(5), None);
+    let a = r.add_adhoc("A", Some(5), None);
+    r.set_initiative(m, Some(20));
+    r.set_initiative(a, Some(10));
+    r.get_mut(m).unwrap().current_hp = Some(0);
+    r.start(&c);
+    assert_eq!(r.current().unwrap().id, a);
+    r.prev_turn();
+    assert_eq!(r.current().unwrap().id, a);
+    // removing the current one after a downed monster
+    let mut r = RunningEncounter::new("x");
+    let ids: Vec<Id> = ["X", "M", "R", "Y"].iter().map(|n| r.add_adhoc(n, Some(5), None)).collect();
+    for (i, id) in ids.iter().enumerate() {
+        r.set_initiative(*id, Some(20 - i as i32));
+    }
+    r.get_mut(ids[1]).unwrap().current_hp = Some(0);
+    r.start(&c); // X
+    r.next_turn(); // R (M is down)
+    r.remove(ids[2]); // turn passes to Y
+    assert_eq!(r.current().unwrap().id, ids[3]);
+    r.prev_turn();
+    assert_ne!(r.current().unwrap().id, ids[1], "Back landed on the downed monster");
+}
+
+#[test]
+fn importing_sessions_leaves_your_own_cards_alone() {
+    // A: same campaign imported again with "keep both", sessions only
+    let mut mine = Campaign::new("x");
+    mine.sessions.push(Session {
+        number: 1,
+        ..Default::default()
+    });
+    let card = StoryCard {
+        timing: CardTiming::Session(1),
+        ..Default::default()
+    };
+    let cid = card.id;
+    mine.story_cards.push(card);
+    let copy = mine.clone();
+    transfer::merge(&mut mine, &copy, &[transfer::Part::Sessions], transfer::Duplicates::KeepBoth).unwrap();
+    assert_eq!(mine.card(cid).unwrap().timing, CardTiming::Session(1));
+    // B: both have their own session 3; a shared card is skipped as a duplicate
+    let mut mine = Campaign::new("x");
+    mine.sessions.push(Session {
+        number: 3,
+        ..Default::default()
+    });
+    let card = StoryCard {
+        timing: CardTiming::Session(3),
+        ..Default::default()
+    };
+    let cid = card.id;
+    mine.story_cards.push(card.clone());
+    let mut other = Campaign::new("y");
+    other.sessions.push(Session {
+        number: 3,
+        ..Default::default()
+    });
+    other.story_cards.push(card);
+    transfer::merge(
+        &mut mine,
+        &other,
+        &[transfer::Part::Story, transfer::Part::Sessions],
+        transfer::Duplicates::Skip,
+    )
+    .unwrap();
+    assert_eq!(mine.card(cid).unwrap().timing, CardTiming::Session(3));
+    // Replace never leaves two sessions with one number
+    let mut mine = Campaign::new("x");
+    let s1 = Session {
+        number: 1,
+        ..Default::default()
+    };
+    let s2 = Session {
+        number: 2,
+        ..Default::default()
+    };
+    let mut other = Campaign::new("y");
+    let mut s1b = s1.clone();
+    s1b.number = 2;
+    other.sessions.push(s1b);
+    mine.sessions.push(s1);
+    mine.sessions.push(s2);
+    transfer::merge(&mut mine, &other, &[transfer::Part::Sessions], transfer::Duplicates::Replace).unwrap();
+    let mut n: Vec<u32> = mine.sessions.iter().map(|s| s.number).collect();
+    n.sort();
+    n.dedup();
+    assert_eq!(n.len(), 2);
+}
+
+fn npc_with_forms() -> (Campaign, Id, Id, Id, Id) {
+    let mut c = Campaign::new("x");
+    let mut blocks = Vec::new();
+    for (name, ac, hp) in [("Human", 12, 40), ("Wolf", 13, 11), ("Bear", 11, 34)] {
+        let mut sb = cm_core::bestiary::StatBlock::default();
+        sb.core.name = name.into();
+        sb.core.ac = Some(ac);
+        sb.core.max_hp = Some(hp);
+        blocks.push(sb.id);
+        c.statblocks.push(sb);
+    }
+    let mut n = Npc::default();
+    n.core.max_hp = Some(40);
+    for b in &blocks {
+        n.add_statblock(*b);
+    }
+    let nid = n.id;
+    c.npcs.push(n);
+    (c, nid, blocks[0], blocks[1], blocks[2])
+}
+
+#[test]
+fn deleting_the_form_in_use_mid_fight_keeps_the_npc_record_intact() {
+    let (mut c, nid, _human, wolf, _bear) = npc_with_forms();
+    let mut r = RunningEncounter::new("x");
+    let id = r.add_from_campaign_as(&c, CombatantSource::Npc(nid), Some(wolf)).unwrap();
+    c.active_encounter = Some(r);
+    c.delete(&Link::StatBlock(wolf));
+    let mut r = c.active_encounter.take().unwrap();
+    assert_eq!(r.get(id).unwrap().form, None);
+    assert_eq!(r.get(id).unwrap().max_hp, Some(40), "back to the main form's numbers");
+    r.set_max_hp(&mut c, id, Some(11));
+    assert_eq!(c.npc(nid).unwrap().core.max_hp, Some(11)); // main form: edits do go to the NPC now
+}
+
+#[test]
+fn changing_the_main_stat_block_to_one_of_its_forms_keeps_it_main() {
+    let (mut c, nid, human, wolf, bear) = npc_with_forms();
+    let n = c.npc_mut(nid).unwrap();
+    n.replace_statblock(human, bear);
+    assert_eq!(n.statblock, Some(bear));
+    assert_eq!(n.statblock_ids(), vec![bear, wolf]);
+}
+
+#[test]
+fn undoing_old_hits_respects_death_saves() {
+    let mut rng = SequenceRng::new(vec![1]);
+    // dead stays dead
+    let (mut r, id) = downed_pc();
+    let cb = r.get_mut(id).unwrap();
+    cb.death_failures = 3;
+    let hit = cb.apply_hp(HpChangeKind::Damage, "5", &mut rng, 1).unwrap();
+    cb.apply_hp(HpChangeKind::Damage, "2", &mut rng, 1).unwrap();
+    cb.undo_hp(hit.id);
+    assert_eq!(cb.death_state(), Some(DeathState::Dead));
+    // undoing the hit that broke a stable character makes them stable again
+    let (mut r, id) = downed_pc();
+    let cb = r.get_mut(id).unwrap();
+    cb.death_successes = 3;
+    let hit = cb.apply_hp(HpChangeKind::Damage, "3", &mut rng, 1).unwrap();
+    cb.apply_hp(HpChangeKind::TempHp, "4", &mut rng, 1).unwrap();
+    cb.undo_hp(hit.id);
+    assert_eq!(cb.death_state(), Some(DeathState::Stable));
+}
+
+#[test]
+fn a_forms_initiative_modifier_doesnt_touch_the_notes() {
+    let (mut c, nid, _h, wolf, _b) = npc_with_forms();
+    let mut r = RunningEncounter::new("x");
+    let id = r.add_from_campaign_as(&c, CombatantSource::Npc(nid), Some(wolf)).unwrap();
+    r.get_mut(id).unwrap().notes = "Bit the cleric".into();
+    r.set_initiative_mod(&mut c, id, Some(3));
+    assert_eq!(r.get(id).unwrap().notes, "Bit the cleric");
+    assert_eq!(r.init_source(&c, r.get(id).unwrap()), cm_core::InitSource::Assigned(3));
+    r.set_initiative_mod(&mut c, id, None);
+    assert_eq!(r.get(id).unwrap().notes, "Bit the cleric");
+    // old saves kept it in the notes: still read
+    let mut r = RunningEncounter::new("x");
+    let g = r.add_adhoc("Rat", None, None);
+    r.get_mut(g).unwrap().notes = "init +2".into();
+    assert_eq!(r.init_source(&c, r.get(g).unwrap()), cm_core::InitSource::Assigned(2));
+}
+
+#[test]
+fn two_big_dice_terms_still_roll() {
+    assert!(dice::roll("10000d6+10000d6").is_ok());
+}
+
+#[test]
+fn removing_a_card_from_a_plan_and_renumbering_sessions() {
+    let mut c = Campaign::new("x");
+    let s = Session {
+        number: 3,
+        ..Default::default()
+    };
+    let sid = s.id;
+    c.sessions.push(s);
+    let card = StoryCard::default();
+    let cid = card.id;
+    c.story_cards.push(card);
+    c.move_card_to_session(cid, Some(3));
+    c.unassign_card_from_session(cid, sid);
+    assert_eq!(c.card(cid).unwrap().timing, CardTiming::Unscheduled);
+    assert!(c.cards_for_session(c.session(sid).unwrap()).is_empty());
+    c.move_card_to_session(cid, Some(3));
+    c.renumber_session(sid, 4);
+    assert_eq!(c.card(cid).unwrap().timing, CardTiming::Session(4));
+}
+
+#[test]
+fn impossible_prices_become_no_price() {
+    assert_eq!(parse_cost_text(&"9".repeat(400)), None);
+    assert_eq!(parse_cost(&serde_json::json!({"amount": "1e999", "unit": "gp"})), None);
+    assert!(cm_core::loot::shop_price(f64::INFINITY).is_finite());
+    assert!(cm_core::loot::shop_price(f64::NAN).is_finite());
+}
+
+#[test]
+fn re_exporting_to_the_wiki_keeps_your_notes() {
+    let tmp = tempfile::tempdir().unwrap();
+    let mut v = cm_core::wiki::Vault::open(tmp.path()).unwrap();
+    let rel = v.export("People", "Vask", "id-1", "---\ncm_id: id-1\n---\n# Vask\nOld text").unwrap();
+    let path = v.abs_path(&rel);
+    let mut text = std::fs::read_to_string(&path).unwrap();
+    assert!(text.contains(cm_core::wiki::KEEP_MARKER));
+    text.push_str("\nMy own notes about Vask.\n");
+    std::fs::write(&path, text).unwrap();
+    let mut v = cm_core::wiki::Vault::open(tmp.path()).unwrap();
+    v.export("People", "Vask", "id-1", "---\ncm_id: id-1\n---\n# Vask\nNew text").unwrap();
+    let text = std::fs::read_to_string(&path).unwrap();
+    assert!(text.contains("New text") && !text.contains("Old text"));
+    assert!(text.contains("My own notes about Vask."));
+    // a note from an older version (no marker) is kept as a copy before it's replaced
+    std::fs::write(tmp.path().join("People/Greta.md"), "---\ncm_id: id-2\n---\nHand-edited").unwrap();
+    let mut v = cm_core::wiki::Vault::open(tmp.path()).unwrap();
+    v.export("People", "Greta", "id-2", "---\ncm_id: id-2\n---\nFresh").unwrap();
+    let backup = std::fs::read_to_string(tmp.path().join("People/Greta (before re-export).md")).unwrap();
+    assert!(backup.contains("Hand-edited") && !backup.contains("cm_id"));
+    // names starting with a dot would be hidden from the vault
+    assert!(!cm_core::wiki::note_rel_path(".hidden", ".38 Special").split('/').any(|p| p.starts_with('.')));
+}

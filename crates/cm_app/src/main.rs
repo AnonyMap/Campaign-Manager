@@ -7,6 +7,7 @@ mod app;
 mod image_loader;
 mod rich_text;
 mod settings;
+mod shortcuts;
 mod theme_ui;
 mod themes;
 mod ui_util;

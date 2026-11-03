@@ -503,7 +503,7 @@ pub fn show_npcs(ui: &mut egui::Ui, doc: &mut Doc, sh: &mut Shared, st: &mut Sta
                 .collect();
             list.sort_by_key(|n| n.core.name.to_lowercase());
             // only the rows on screen are laid out (campaigns can have hundreds of NPCs)
-            let row_h = ui.spacing().interact_size.y;
+            let row_h = crate::ui_util::list_row_height(ui);
             egui::ScrollArea::vertical().id_salt("npc_rows").show_rows(ui, row_h, list.len(), |ui, range| {
                 for n in &list[range] {
                     let mut text = RichText::new(format!(
@@ -839,6 +839,8 @@ fn statblock_row(ui: &mut egui::Ui, doc: &mut Doc, sh: &mut Shared, st: &mut Sta
             Op::Remove(s) => n.remove_statblock(s),
             Op::Main(s) => n.set_main_statblock(s),
         }
+        // fights and planned encounters that used a form which is now the main one (or gone)
+        doc.c.normalize_forms();
     }
 }
 

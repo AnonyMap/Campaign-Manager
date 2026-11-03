@@ -449,10 +449,36 @@ impl Vault {
                 rel
             }
         };
-        self.write_note(&rel, content)?;
+        // Keep what the DM wrote under the marker in an earlier export. A note exported by an
+        // older version has no marker: keep a copy of it before replacing it.
+        let existing = std::fs::read_to_string(self.abs_path(&rel)).ok();
+        let mut text = format!("{}\n\n{KEEP_MARKER}\n", content.trim_end());
+        match existing.as_deref() {
+            Some(old) => match old.split_once(KEEP_MARKER) {
+                Some((_, tail)) => text.push_str(tail.trim_start_matches(['\r', '\n'])),
+                None if old.trim() != content.trim() => {
+                    let stem = rel.trim_end_matches(".md");
+                    let mut backup = format!("{stem} (before re-export).md");
+                    let mut i = 2;
+                    while self.abs_path(&backup).exists() {
+                        backup = format!("{stem} (before re-export {i}).md");
+                        i += 1;
+                    }
+                    // (without its cm_id, so it isn't taken for the exported note next time)
+                    let old_kept: String = old.lines().filter(|l| !l.trim_start().starts_with("cm_id:")).collect::<Vec<_>>().join("\n");
+                    self.write_note(&backup, &old_kept)?;
+                }
+                None => {}
+            },
+            None => {}
+        }
+        self.write_note(&rel, &text)?;
         Ok(rel)
     }
 }
+
+/// Exported notes end with this line; anything written below it survives re-exporting.
+pub const KEEP_MARKER: &str = "%% Your own notes go below this line: exporting again from Campaign Manager keeps them. %%";
 
 fn rel_string(root: &Path, p: &Path) -> String {
     p.strip_prefix(root)
@@ -464,11 +490,16 @@ fn rel_string(root: &Path, p: &Path) -> String {
 }
 
 pub fn note_rel_path(folder: &str, title: &str) -> String {
-    let name = format!("{}.md", sanitize_file_name(title));
+    // (no leading dots: the vault skips hidden files and folders, so the note would vanish)
+    let visible = |s: String| {
+        let t = s.trim_start_matches('.').to_string();
+        if t.is_empty() { "note".to_string() } else { t }
+    };
+    let name = format!("{}.md", visible(sanitize_file_name(title)));
     let folder = folder
         .split(['/', '\\'])
         .filter(|s| !s.is_empty() && *s != "..")
-        .map(sanitize_file_name)
+        .map(|s| visible(sanitize_file_name(s)))
         .collect::<Vec<_>>()
         .join("/");
     if folder.is_empty() { name } else { format!("{folder}/{name}") }

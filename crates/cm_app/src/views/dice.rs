@@ -175,6 +175,10 @@ fn execute(input: &str, c: &mut Campaign, sh: &mut Shared, st: &mut State) {
             }
             let mut text = totals.iter().map(|t| dice::fmt_num(*t)).collect::<Vec<_>>().join(", ");
             let sum: f64 = totals.iter().sum();
+            if !sum.is_finite() {
+                sh.toast("Dice: those numbers are too big to add up");
+                return;
+            }
             let total = if let Some(tg) = target {
                 let hits = totals.iter().filter(|t| **t >= tg).count();
                 text.push_str(&format!("  » {hits}/{count} meet {}", dice::fmt_num(tg)));

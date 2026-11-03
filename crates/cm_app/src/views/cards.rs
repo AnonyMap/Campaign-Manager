@@ -78,6 +78,10 @@ pub fn show(ui: &mut egui::Ui, doc: &mut Doc, sh: &mut Shared, st: &mut State) {
                         ui.selectable_value(&mut st.status, Some(s), s.label());
                     }
                 });
+            // a deleted thread can't stay as the filter (the menu would say "Any thread" but hide all)
+            if st.thread.map(|t| doc.c.thread(t).is_none()).unwrap_or(false) {
+                st.thread = None;
+            }
             egui::ComboBox::from_id_salt("card_thread_f")
                 .width(110.0)
                 .selected_text(st.thread.and_then(|t| doc.c.thread(t)).map(|t| t.name.clone()).unwrap_or("Any thread".into()))

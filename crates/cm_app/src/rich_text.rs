@@ -6,6 +6,7 @@
 //! they can still be edited (like Obsidian's live preview). A toolbar and Ctrl+B / Ctrl+I
 //! add formatting without knowing any Markdown.
 
+use crate::shortcuts as sc;
 use std::ops::Range;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -633,25 +634,35 @@ pub fn toolbar(ui: &mut Ui, id: egui::Id, text: &mut String) -> bool {
     ui.horizontal_wrapped(|ui| {
         ui.spacing_mut().item_spacing.x = 2.0;
         let bf = bold(ui.ctx());
+        let ctx = ui.ctx().clone();
+        let tip = |what: &str, k: &egui::KeyboardShortcut| sc::with(&ctx, what, k);
         let btn = |ui: &mut Ui, label: RichText, tip: &str| ui.add(egui::Button::new(label).min_size(egui::vec2(26.0, 0.0))).on_hover_text(tip).clicked();
-        if btn(ui, RichText::new("B").family(bf.clone()), "Bold (Ctrl+B)") {
+        if btn(ui, RichText::new("B").family(bf.clone()), &tip("Bold", &sc::BOLD)) {
             run(ui, id, text, Cmd::Wrap("**"));
         }
-        if btn(ui, RichText::new("I").italics(), "Italic (Ctrl+I)") {
+        if btn(ui, RichText::new("I").italics(), &tip("Italic", &sc::ITALIC)) {
             run(ui, id, text, Cmd::Wrap("*"));
         }
-        if btn(ui, RichText::new("S").strikethrough(), "Strikethrough") {
+        if btn(ui, RichText::new("S").strikethrough(), &tip("Strikethrough", &sc::STRIKE)) {
             run(ui, id, text, Cmd::Wrap("~~"));
         }
         ui.menu_button(RichText::new("H").family(bf.clone()), |ui| {
-            for (lvl, label, size) in [(1u8, "Big heading", 1.5f32), (2, "Heading", 1.25), (3, "Small heading", 1.1)] {
+            for (lvl, label, size, key) in [
+                (1u8, "Big heading", 1.5f32, sc::HEADING_1),
+                (2, "Heading", 1.25, sc::HEADING_2),
+                (3, "Small heading", 1.1, sc::HEADING_3),
+            ] {
                 let body = egui::TextStyle::Body.resolve(ui.style()).size;
-                if ui.button(RichText::new(label).family(bf.clone()).size(body * size)).clicked() {
+                let b = egui::Button::new(RichText::new(label).family(bf.clone()).size(body * size)).shortcut_text(sc::label(&ctx, &key));
+                if ui.add(b).clicked() {
                     run(ui, id, text, Cmd::Heading(lvl));
                     ui.close();
                 }
             }
-            if ui.button("Normal text").clicked() {
+            if ui
+                .add(egui::Button::new("Normal text").shortcut_text(sc::label(&ctx, &sc::PLAIN_TEXT)))
+                .clicked()
+            {
                 run(ui, id, text, Cmd::Heading(0));
                 ui.close();
             }
@@ -659,23 +670,23 @@ pub fn toolbar(ui: &mut Ui, id: egui::Id, text: &mut String) -> bool {
         .response
         .on_hover_text("Heading");
         ui.separator();
-        if btn(ui, RichText::new("•"), "Bullet list") {
+        if btn(ui, RichText::new("•"), &tip("Bullet list", &sc::BULLETS)) {
             run(ui, id, text, Cmd::Lines("- "));
         }
-        if btn(ui, RichText::new("1."), "Numbered list") {
+        if btn(ui, RichText::new("1."), &tip("Numbered list", &sc::NUMBERED)) {
             run(ui, id, text, Cmd::Lines("1. "));
         }
-        if btn(ui, RichText::new("☑"), "Checklist") {
+        if btn(ui, RichText::new("☑"), &tip("Checklist", &sc::CHECKLIST)) {
             run(ui, id, text, Cmd::Lines("- [ ] "));
         }
         if btn(ui, RichText::new("❝"), "Quote") {
             run(ui, id, text, Cmd::Lines("> "));
         }
         ui.separator();
-        if btn(ui, RichText::new("[[ ]]"), "Link to a card, NPC, place or wiki page by name") {
+        if btn(ui, RichText::new("[[ ]]"), &tip("Link to a card, NPC, place or wiki page by name", &sc::LINK)) {
             run(ui, id, text, Cmd::Link);
         }
-        if btn(ui, RichText::new("{ }").monospace(), "Code / exact text") {
+        if btn(ui, RichText::new("{ }").monospace(), &tip("Code / exact text", &sc::CODE)) {
             run(ui, id, text, Cmd::Wrap("`"));
         }
         ui.separator();
@@ -691,24 +702,35 @@ pub fn toolbar(ui: &mut Ui, id: egui::Id, text: &mut String) -> bool {
     text.len() != before || *text != snapshot
 }
 
-/// Ctrl+B / Ctrl+I while the box has focus. Call before drawing the box.
+/// Formatting shortcuts (⌘/Ctrl+B, I, K, E, ⇧X, ⇧7/8/9, ⌥1/2/3/0) while the box has
+/// focus. Call before drawing the box. Returns true if the text changed.
 pub fn shortcuts(ui: &Ui, id: egui::Id, text: &mut String) -> bool {
     if !ui.ctx().memory(|m| m.has_focus(id)) {
         return false;
     }
-    let (b, i) = ui.input_mut(|inp| {
-        (
-            inp.consume_key(egui::Modifiers::COMMAND, egui::Key::B),
-            inp.consume_key(egui::Modifiers::COMMAND, egui::Key::I),
-        )
-    });
-    if b {
-        run(ui, id, text, Cmd::Wrap("**"));
+    // (the ones with Shift or Alt first: a plain ⌘ shortcut would also match them)
+    let table: [(egui::KeyboardShortcut, Cmd); 12] = [
+        (sc::STRIKE, Cmd::Wrap("~~")),
+        (sc::NUMBERED, Cmd::Lines("1. ")),
+        (sc::BULLETS, Cmd::Lines("- ")),
+        (sc::CHECKLIST, Cmd::Lines("- [ ] ")),
+        (sc::HEADING_1, Cmd::Heading(1)),
+        (sc::HEADING_2, Cmd::Heading(2)),
+        (sc::HEADING_3, Cmd::Heading(3)),
+        (sc::PLAIN_TEXT, Cmd::Heading(0)),
+        (sc::BOLD, Cmd::Wrap("**")),
+        (sc::ITALIC, Cmd::Wrap("*")),
+        (sc::CODE, Cmd::Wrap("`")),
+        (sc::LINK, Cmd::Link),
+    ];
+    let mut changed = false;
+    for (key, cmd) in table {
+        if sc::pressed(ui.ctx(), &key) {
+            run(ui, id, text, cmd);
+            changed = true;
+        }
     }
-    if i {
-        run(ui, id, text, Cmd::Wrap("*"));
-    }
-    b || i
+    changed
 }
 
 /// Bullets and checkboxes to draw: (char range, kind, ticked, char range of the line).

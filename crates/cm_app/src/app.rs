@@ -10,6 +10,7 @@ use egui::{Color32, Key, Modifiers, RichText};
 use egui_commonmark::CommonMarkCache;
 
 use crate::settings::AppSettings;
+use crate::shortcuts as sc;
 use crate::ui_util;
 use crate::views;
 
@@ -175,6 +176,8 @@ pub struct Doc {
 
 /// Undo steps kept. Typing bursts are merged into one step and dice rolls aren't steps.
 const UNDO_STEPS: usize = 100;
+/// Memory the undo history may use (at least 5 steps are always kept).
+const UNDO_BYTES: usize = 150 * 1024 * 1024;
 
 impl Doc {
     fn new(c: Campaign, dir: PathBuf) -> Self {
@@ -206,7 +209,8 @@ impl Doc {
     fn snapshot(&mut self) -> String {
         let hist = std::mem::take(&mut self.c.dice.history);
         let inputs = std::mem::take(&mut self.c.dice.input_history);
-        let json = storage::to_json(&self.c).unwrap_or_default();
+        // compact JSON: snapshots only live in memory (undo history, change detection)
+        let json = storage::to_json_compact(&self.c).unwrap_or_default();
         self.c.dice.history = hist;
         self.c.dice.input_history = inputs;
         json
@@ -248,8 +252,11 @@ impl Doc {
             let merge = !self.new_step && self.now - self.last_change < 1.5 && !self.undo.is_empty();
             if !merge {
                 self.undo.push(prev);
-                if self.undo.len() > UNDO_STEPS {
-                    self.undo.remove(0);
+                // keep at most UNDO_STEPS steps, and no more than UNDO_BYTES of them (a very
+                // large campaign would otherwise hold hundreds of MB of history)
+                let mut total: usize = self.undo.iter().map(|s| s.len()).sum();
+                while self.undo.len() > UNDO_STEPS || (total > UNDO_BYTES && self.undo.len() > 5) {
+                    total -= self.undo.remove(0).len();
                 }
             }
             self.redo.clear();
@@ -369,7 +376,35 @@ pub struct App {
     search_text: String,
     focus_search: bool,
     vault_loaded_for: Option<PathBuf>,
+    /// Back / forward history of screens and the records open on them.
+    history_back: Vec<Place>,
+    history_fwd: Vec<Place>,
+    last_place: Option<Place>,
+    /// The keyboard shortcut list is open.
+    show_shortcuts: bool,
+    /// The "Go to…" switcher is open: (query, highlighted row).
+    go_to: Option<(String, usize)>,
 }
+
+/// Where the user is: a screen and the record open on it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Place {
+    pub view: View,
+    pub link: Option<Link>,
+}
+
+/// ⌘/Ctrl + 1…9.
+pub const VIEW_SHORTCUTS: [View; 9] = [
+    View::Home,
+    View::Run,
+    View::Cards,
+    View::Board,
+    View::Npcs,
+    View::Places,
+    View::Encounters,
+    View::Combat,
+    View::Wiki,
+];
 
 impl App {
     pub fn new(cc: &eframe::CreationContext<'_>, open_path: Option<PathBuf>) -> Self {
@@ -401,7 +436,14 @@ impl App {
             search_text: String::new(),
             focus_search: false,
             vault_loaded_for: None,
+            history_back: Vec::new(),
+            history_fwd: Vec::new(),
+            last_place: None,
+            show_shortcuts: false,
+            go_to: None,
         };
+        // ⌘/Ctrl +/- change the app's own text size instead (see `shortcuts`)
+        cc.egui_ctx.options_mut(|o| o.zoom_with_keyboard = false);
         let target = open_path.or_else(|| {
             if app.settings.reopen_last {
                 app.settings.last_campaign.as_ref().map(PathBuf::from).filter(|p| storage::is_campaign_dir(p))
@@ -422,6 +464,16 @@ impl App {
     fn leave_wiki_note(&mut self) -> bool {
         if self.vs.wiki.has_unsaved().is_none() || views::wiki::save_open_note(&mut self.sh, &mut self.vs.wiki) {
             return true;
+        }
+        // the vault isn't there to save into (its folder was changed): keep the text in a
+        // file next to the campaign rather than trap the user here
+        if self.sh.vault.is_none() {
+            if let Some(dir) = self.doc.as_ref().map(|d| d.dir.clone()) {
+                if let Some(p) = views::wiki::rescue_open_note(&mut self.vs.wiki, &dir) {
+                    self.sh.toast(format!("Your unsaved wiki note was kept in {}", p.display()));
+                    return true;
+                }
+            }
         }
         self.view = View::Wiki;
         self.sh.toast("Save or discard your wiki note first");
@@ -462,14 +514,14 @@ impl App {
             dir = PathBuf::from(parent.trim()).join(format!("{} {i}", storage::sanitize_file_name(name)));
             i += 1;
         }
+        // (leave the current campaign first, so a refusal doesn't leave an empty folder behind)
+        if !self.leave_wiki_note() || !self.save_if_dirty() {
+            return;
+        }
         let mut c = if sample { cm_core::sample_campaign() } else { Campaign::new(name) };
         c.name = name.to_string();
         match storage::save(&c, &dir) {
-            Ok(_) => {
-                if self.leave_wiki_note() && self.save_if_dirty() {
-                    self.set_doc(c, dir);
-                }
-            }
+            Ok(_) => self.set_doc(c, dir),
             Err(e) => self.sh.toast(format!("Couldn't create campaign: {e}")),
         }
     }
@@ -934,7 +986,10 @@ impl App {
                     };
                     ui.close();
                 }
-                if ui.button("Open campaign folder…").clicked() {
+                if ui
+                    .add(egui::Button::new("Open campaign folder…").shortcut_text(sc::label(ctx, &sc::OPEN)))
+                    .clicked()
+                {
                     ui.close();
                     match ui_util::pick_folder("Open campaign folder") {
                         Some(p) => self.open_campaign(&p),
@@ -958,7 +1013,10 @@ impl App {
                 });
                 ui.separator();
                 let has = self.doc.is_some();
-                if ui.add_enabled(has, egui::Button::new("Save").shortcut_text("Ctrl+S")).clicked() {
+                if ui
+                    .add_enabled(has, egui::Button::new("Save").shortcut_text(sc::label(ctx, &sc::SAVE)))
+                    .clicked()
+                {
                     self.save_now();
                     ui.close();
                 }
@@ -1021,25 +1079,89 @@ impl App {
             });
             ui.menu_button("Edit", |ui| {
                 let (u, r) = self.doc.as_ref().map(|d| (!d.undo.is_empty(), !d.redo.is_empty())).unwrap_or((false, false));
-                if ui.add_enabled(u, egui::Button::new("Undo last change").shortcut_text("Ctrl+Z")).clicked() {
+                if ui
+                    .add_enabled(u, egui::Button::new("Undo last change").shortcut_text(sc::label(ctx, &sc::UNDO)))
+                    .clicked()
+                {
                     self.do_undo();
                     ui.close();
                 }
-                if ui.add_enabled(r, egui::Button::new("Redo").shortcut_text("Ctrl+Y")).clicked() {
+                if ui.add_enabled(r, egui::Button::new("Redo").shortcut_text(sc::label(ctx, &sc::REDO))).clicked() {
                     self.do_redo();
+                    ui.close();
+                }
+                ui.separator();
+                let has = self.doc.is_some();
+                if ui
+                    .add_enabled(has, egui::Button::new("Go to…").shortcut_text(sc::label(ctx, &sc::GO_TO)))
+                    .clicked()
+                {
+                    self.go_to = Some((String::new(), 0));
+                    ui.close();
+                }
+                if ui
+                    .add_enabled(has, egui::Button::new("Search").shortcut_text(sc::label(ctx, &sc::FIND)))
+                    .clicked()
+                {
+                    self.focus_search = true;
+                    ui.close();
+                }
+                if ui
+                    .add_enabled(
+                        !self.history_back.is_empty(),
+                        egui::Button::new("Back").shortcut_text(sc::label(ctx, &sc::BACK)),
+                    )
+                    .clicked()
+                {
+                    self.go_back(ctx);
+                    ui.close();
+                }
+                if ui
+                    .add_enabled(
+                        !self.history_fwd.is_empty(),
+                        egui::Button::new("Forward").shortcut_text(sc::label(ctx, &sc::FORWARD)),
+                    )
+                    .clicked()
+                {
+                    self.go_forward(ctx);
+                    ui.close();
+                }
+                ui.separator();
+                if ui
+                    .add_enabled(has, egui::Button::new("New story card").shortcut_text(sc::label(ctx, &sc::NEW_CARD)))
+                    .clicked()
+                {
+                    self.new_card();
+                    ui.close();
+                }
+                if ui
+                    .add_enabled(has, egui::Button::new("New NPC").shortcut_text(sc::label(ctx, &sc::NEW_NPC)))
+                    .clicked()
+                {
+                    self.new_npc();
+                    ui.close();
+                }
+                ui.separator();
+                if ui.add(egui::Button::new("Settings").shortcut_text(sc::label(ctx, &sc::SETTINGS))).clicked() {
+                    self.view = View::Settings;
                     ui.close();
                 }
                 ui.weak("Undo restores the campaign to how it was\na moment before the last edit.");
             });
             ui.menu_button("View", |ui| {
                 for (v, label) in View::NAV {
-                    if ui.selectable_label(self.view == v, label).clicked() {
+                    let key = VIEW_SHORTCUTS
+                        .iter()
+                        .position(|x| *x == v)
+                        .map(|k| sc::label(ctx, &egui::KeyboardShortcut::new(Modifiers::COMMAND, sc::VIEW_KEYS[k])));
+                    let b = egui::Button::selectable(self.view == v, label).shortcut_text(key.unwrap_or_default());
+                    if ui.add(b).clicked() {
                         self.view = v;
                         ui.close();
                     }
                 }
                 ui.separator();
-                ui.checkbox(&mut self.settings.show_dice_panel, "Dice roller panel (Ctrl+D)");
+                ui.checkbox(&mut self.settings.show_dice_panel, sc::with(ctx, "Dice roller panel", &sc::DICE));
                 ui.separator();
                 ui.menu_button("Theme", |ui| {
                     for b in crate::themes::BUILTIN {
@@ -1082,7 +1204,14 @@ impl App {
                 }
             });
             ui.menu_button("Help", |ui| {
-                if ui.button("Dice syntax").clicked() {
+                if ui
+                    .add(egui::Button::new("Keyboard shortcuts").shortcut_text(sc::label(ctx, &sc::SHORTCUTS)))
+                    .clicked()
+                {
+                    self.show_shortcuts = true;
+                    ui.close();
+                }
+                if ui.add(egui::Button::new("Dice syntax").shortcut_text(sc::label(ctx, &sc::HELP))).clicked() {
                     self.dialog = Dialog::DiceHelp;
                     ui.close();
                 }
@@ -1101,33 +1230,41 @@ impl App {
                 ui.separator();
             }
             let has = self.doc.is_some();
-            if ui.add_enabled(has, egui::Button::new("➕ Card")).on_hover_text("New story card").clicked() {
-                if let Some(doc) = &mut self.doc {
-                    let card = StoryCard::default();
-                    self.vs.cards.selected = Some(card.id);
-                    doc.c.story_cards.push(card);
-                    self.view = View::Cards;
-                }
+            let ctx = ui.ctx().clone();
+            if ui
+                .add_enabled(has, egui::Button::new("➕ Card"))
+                .on_hover_text(sc::with(&ctx, "New story card", &sc::NEW_CARD))
+                .clicked()
+            {
+                self.new_card();
             }
-            if ui.add_enabled(has, egui::Button::new("➕ NPC")).clicked() {
-                if let Some(doc) = &mut self.doc {
-                    let npc = cm_core::Npc::default();
-                    self.vs.npcs.selected = Some(npc.id);
-                    doc.c.npcs.push(npc);
-                    self.view = View::Npcs;
-                }
+            if ui
+                .add_enabled(has, egui::Button::new("➕ NPC"))
+                .on_hover_text(sc::with(&ctx, "New NPC", &sc::NEW_NPC))
+                .clicked()
+            {
+                self.new_npc();
             }
-            if ui.add_enabled(has, egui::Button::new("⚔ Combat")).clicked() {
+            let combat_key = egui::KeyboardShortcut::new(Modifiers::COMMAND, sc::VIEW_KEYS[7]);
+            if ui
+                .add_enabled(has, egui::Button::new("⚔ Combat"))
+                .on_hover_text(sc::with(&ctx, "Combat tracker", &combat_key))
+                .clicked()
+            {
                 self.view = View::Combat;
             }
-            if ui.button("🎲 Dice").on_hover_text("Show/hide the dice roller (Ctrl+D)").clicked() {
+            if ui
+                .button("🎲 Dice")
+                .on_hover_text(sc::with(&ctx, "Show/hide the dice roller", &sc::DICE))
+                .clicked()
+            {
                 self.settings.show_dice_panel = !self.settings.show_dice_panel;
             }
             ui.separator();
             let r = ui.add_enabled(
                 has,
                 egui::TextEdit::singleline(&mut self.search_text)
-                    .hint_text("🔍 Search campaign & wiki (Ctrl+F)")
+                    .hint_text(format!("🔍 Search campaign & wiki ({})", sc::label(&ctx, &sc::FIND)))
                     .desired_width(260.0),
             );
             if self.focus_search {
@@ -1140,10 +1277,10 @@ impl App {
             }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 crate::theme_ui::theme_menu(ui, &mut self.settings);
-                if ui.button("A+").on_hover_text("Larger text").clicked() {
+                if ui.button("A+").on_hover_text(sc::with(&ctx, "Larger text", &sc::BIGGER)).clicked() {
                     self.settings.font_size = (self.settings.font_size + 1.0).min(32.0);
                 }
-                if ui.button("A−").on_hover_text("Smaller text").clicked() {
+                if ui.button("A−").on_hover_text(sc::with(&ctx, "Smaller text", &sc::SMALLER)).clicked() {
                     self.settings.font_size = (self.settings.font_size - 1.0).max(9.0);
                 }
             });
@@ -1548,30 +1685,26 @@ impl App {
     }
 
     fn shortcuts(&mut self, ctx: &egui::Context) {
-        let text_focused = ctx.memory(|m| m.focused().is_some()) && ctx.wants_keyboard_input();
-        let (save, dice, find, undo, redo, help) = ctx.input_mut(|i| {
-            // Ctrl+Shift+Z first: egui matches Ctrl+Z even with Shift held
-            let redo = !text_focused && (i.consume_key(Modifiers::COMMAND | Modifiers::SHIFT, Key::Z) || i.consume_key(Modifiers::COMMAND, Key::Y));
-            (
-                i.consume_key(Modifiers::COMMAND, Key::S),
-                i.consume_key(Modifiers::COMMAND, Key::D),
-                i.consume_key(Modifiers::COMMAND, Key::F),
-                !text_focused && i.consume_key(Modifiers::COMMAND, Key::Z),
-                redo,
-                i.consume_key(Modifiers::NONE, Key::F1),
-            )
-        });
-        if save {
+        let text_focused = sc::typing(ctx);
+        let has = self.doc.is_some();
+        // (variants with Shift first: egui lets ⌘Z match while Shift is held)
+        let redo = !text_focused && (sc::pressed(ctx, &sc::REDO) || sc::pressed(ctx, &sc::REDO_ALT));
+        let undo = !text_focused && sc::pressed(ctx, &sc::UNDO);
+        let new_npc = has && sc::pressed(ctx, &sc::NEW_NPC);
+        if sc::pressed(ctx, &sc::SAVE) {
             self.save_now();
         }
-        if dice {
+        if sc::pressed(ctx, &sc::DICE) {
             self.settings.show_dice_panel = !self.settings.show_dice_panel;
             if self.settings.show_dice_panel {
                 self.vs.dice.focus = true;
             }
         }
-        if find {
+        if has && sc::pressed(ctx, &sc::FIND) {
             self.focus_search = true;
+        }
+        if has && sc::pressed(ctx, &sc::GO_TO) {
+            self.go_to = if self.go_to.is_some() { None } else { Some((String::new(), 0)) };
         }
         if undo {
             self.do_undo();
@@ -1579,8 +1712,296 @@ impl App {
         if redo {
             self.do_redo();
         }
-        if help {
+        if sc::pressed(ctx, &sc::HELP) {
             self.dialog = Dialog::DiceHelp;
+        }
+        if sc::pressed(ctx, &sc::SHORTCUTS) {
+            self.show_shortcuts = !self.show_shortcuts;
+        }
+        if sc::pressed(ctx, &sc::SETTINGS) {
+            self.view = View::Settings;
+        }
+        if sc::pressed(ctx, &sc::OPEN) {
+            match ui_util::pick_folder("Open campaign folder") {
+                Some(p) => self.open_campaign(&p),
+                None => self.dialog = Dialog::OpenPath { path: String::new() },
+            }
+        }
+        if new_npc {
+            self.new_npc();
+        } else if has && sc::pressed(ctx, &sc::NEW_CARD) {
+            self.new_card();
+        }
+        // (on many keyboards "+" needs Shift, so ⌘+ arrives as ⌘⇧+ or ⌘⇧=)
+        let shift_cmd = Modifiers::COMMAND.plus(Modifiers::SHIFT);
+        if sc::pressed(ctx, &sc::BIGGER)
+            || sc::pressed(ctx, &sc::BIGGER_ALT)
+            || sc::pressed(ctx, &egui::KeyboardShortcut::new(shift_cmd, Key::Plus))
+            || sc::pressed(ctx, &egui::KeyboardShortcut::new(shift_cmd, Key::Equals))
+        {
+            self.settings.font_size = (self.settings.font_size + 1.0).min(32.0);
+        }
+        if sc::pressed(ctx, &sc::SMALLER) {
+            self.settings.font_size = (self.settings.font_size - 1.0).max(9.0);
+        }
+        if sc::pressed(ctx, &sc::NORMAL_SIZE) {
+            self.settings.font_size = 14.0;
+        }
+        // back / forward: ⌘[ ⌘], or the mouse's side buttons
+        let (mouse_back, mouse_fwd) = ctx.input(|i| {
+            (
+                i.pointer.button_pressed(egui::PointerButton::Extra1),
+                i.pointer.button_pressed(egui::PointerButton::Extra2),
+            )
+        });
+        if has && (sc::pressed(ctx, &sc::BACK) || mouse_back) {
+            self.go_back(ctx);
+        }
+        if has && (sc::pressed(ctx, &sc::FORWARD) || mouse_fwd) {
+            self.go_forward(ctx);
+        }
+        // ⌘/Ctrl + 1…9 (exactly: ⌘⌥1… are headings and ⌘⇧7/8/9 lists while writing)
+        if has {
+            for (k, key) in sc::VIEW_KEYS.iter().enumerate() {
+                if sc::pressed(ctx, &egui::KeyboardShortcut::new(Modifiers::COMMAND, *key)) {
+                    self.view = VIEW_SHORTCUTS[k];
+                }
+            }
+        }
+        // ↑ / ↓ / Home / End move through the list on screen (the combat tracker has its own)
+        let mut dir = 0i8;
+        if !text_focused && self.go_to.is_none() && self.view != View::Combat && !egui::Popup::is_any_open(ctx) {
+            ctx.input_mut(|i| {
+                if i.consume_key(Modifiers::NONE, Key::ArrowDown) {
+                    dir = 1;
+                } else if i.consume_key(Modifiers::NONE, Key::ArrowUp) {
+                    dir = -1;
+                } else if i.consume_key(Modifiers::NONE, Key::Home) {
+                    dir = 2;
+                } else if i.consume_key(Modifiers::NONE, Key::End) {
+                    dir = 3;
+                }
+            });
+        }
+        ui_util::list_nav_begin(ctx, dir);
+        // Esc closes whatever is on top
+        if !text_focused && ctx.input(|i| i.key_pressed(Key::Escape)) && !egui::Popup::is_any_open(ctx) {
+            if self.go_to.is_some() {
+                self.go_to = None;
+            } else if self.show_shortcuts {
+                self.show_shortcuts = false;
+            } else if self.image_viewer.is_some() {
+                self.image_viewer = None;
+            } else if matches!(self.dialog, Dialog::About | Dialog::DiceHelp) {
+                self.dialog = Dialog::None;
+            }
+        }
+    }
+
+    fn new_card(&mut self) {
+        if let Some(doc) = &mut self.doc {
+            let card = StoryCard::default();
+            self.vs.cards.selected = Some(card.id);
+            doc.c.story_cards.push(card);
+            self.view = View::Cards;
+        }
+    }
+
+    fn new_npc(&mut self) {
+        if let Some(doc) = &mut self.doc {
+            let npc = cm_core::Npc::default();
+            self.vs.npcs.selected = Some(npc.id);
+            doc.c.npcs.push(npc);
+            self.view = View::Npcs;
+        }
+    }
+
+    // -- back / forward ---------------------------------------------------------------
+
+    /// The screen and the record open on it.
+    fn current_place(&self) -> Place {
+        let vs = &self.vs;
+        let link = match self.view {
+            View::Cards => vs.cards.selected.map(Link::Card),
+            View::Quests => vs.quests.selected.map(Link::Card),
+            View::Npcs => vs.npcs.selected.map(Link::Npc),
+            View::Players => vs.players.selected.map(Link::Player),
+            View::Factions => vs.factions.selected.map(Link::Faction),
+            View::Encounters => vs.encounters.selected.map(Link::Encounter),
+            View::Sessions => vs.sessions.selected.map(Link::Session),
+            View::Threads => vs.threads.selected.map(Link::Thread),
+            View::Maps => vs.maps.selected.map(Link::Map),
+            View::Bestiary => vs.bestiary.selected.map(Link::StatBlock),
+            View::Items => vs.items.selected.map(Link::Item),
+            View::Places => vs.places.selected.map(Link::Location),
+            View::Wiki => vs.wiki.open_note().map(Link::Wiki),
+            _ => None,
+        };
+        Place { view: self.view, link }
+    }
+
+    fn show_place(&mut self, ctx: &egui::Context, p: Place) {
+        self.view = p.view;
+        match p.link {
+            Some(l) => self.navigate(ctx, l),
+            None => match p.view {
+                View::Cards => self.vs.cards.selected = None,
+                View::Npcs => self.vs.npcs.selected = None,
+                View::Players => self.vs.players.selected = None,
+                View::Places => self.vs.places.selected = None,
+                _ => {}
+            },
+        }
+        // quests and cards share links: stay on the screen we're going back to
+        self.view = p.view;
+        self.last_place = Some(self.current_place());
+    }
+
+    fn go_back(&mut self, ctx: &egui::Context) {
+        if let Some(p) = self.history_back.pop() {
+            self.history_fwd.push(self.current_place());
+            self.show_place(ctx, p);
+        }
+    }
+
+    fn go_forward(&mut self, ctx: &egui::Context) {
+        if let Some(p) = self.history_fwd.pop() {
+            self.history_back.push(self.current_place());
+            self.show_place(ctx, p);
+        }
+    }
+
+    /// Note where the user went this frame (called once per frame).
+    fn track_place(&mut self) {
+        let now = self.current_place();
+        match &self.last_place {
+            Some(prev) if *prev != now => {
+                // picking a record on a screen where nothing was open isn't a step back
+                let same_screen_from_nothing = prev.view == now.view && prev.link.is_none();
+                if !same_screen_from_nothing {
+                    self.history_back.push(prev.clone());
+                    if self.history_back.len() > 200 {
+                        self.history_back.remove(0);
+                    }
+                }
+                self.history_fwd.clear();
+            }
+            _ => {}
+        }
+        self.last_place = Some(now);
+    }
+
+    // -- go to… -------------------------------------------------------------------------
+
+    fn go_to_window(&mut self, ctx: &egui::Context) {
+        let Some((mut query, mut row)) = self.go_to.take() else { return };
+        let Some(doc) = &self.doc else { return };
+        // what matches: screens, then campaign records, then wiki notes
+        let q = query.trim().to_lowercase();
+        let mut results: Vec<(String, &'static str, Option<View>, Option<Link>)> = Vec::new();
+        if q.is_empty() {
+            // recently visited records
+            let mut seen = Vec::new();
+            for p in self.history_back.iter().rev() {
+                if let Some(l) = &p.link {
+                    if !seen.contains(l) {
+                        if let Some(name) = doc.c.link_name(l) {
+                            seen.push(l.clone());
+                            results.push((name, "recent", None, Some(l.clone())));
+                        }
+                    }
+                }
+                if results.len() >= 8 {
+                    break;
+                }
+            }
+        } else {
+            for (v, label) in View::NAV {
+                if label.to_lowercase().contains(&q) {
+                    results.push((label.to_string(), "screen", Some(v), None));
+                }
+            }
+            for h in cm_core::search::search(&doc.c, &q).into_iter().take(30) {
+                results.push((h.name, h.kind, None, Some(h.link)));
+            }
+            if let Some(vault) = &self.sh.vault {
+                for n in vault.notes.iter().filter(|n| n.title.to_lowercase().contains(&q)).take(10) {
+                    results.push((n.title.clone(), "wiki", None, Some(Link::Wiki(n.rel_path.clone()))));
+                }
+            }
+        }
+        results.truncate(40);
+        let (up, down, enter) = ctx.input_mut(|i| {
+            (
+                i.consume_key(Modifiers::NONE, Key::ArrowUp),
+                i.consume_key(Modifiers::NONE, Key::ArrowDown),
+                i.consume_key(Modifiers::NONE, Key::Enter),
+            )
+        });
+        if down {
+            row = (row + 1).min(results.len().saturating_sub(1));
+        }
+        if up {
+            row = row.saturating_sub(1);
+        }
+        row = row.min(results.len().saturating_sub(1));
+        let mut chosen = enter.then_some(row).filter(|_| !results.is_empty());
+        let mut open = true;
+        egui::Window::new("Go to…")
+            .collapsible(false)
+            .resizable(false)
+            .title_bar(false)
+            .anchor(egui::Align2::CENTER_TOP, [0.0, 80.0])
+            .show(ctx, |ui| {
+                ui.set_width(520.0);
+                let r = ui.add(
+                    egui::TextEdit::singleline(&mut query)
+                        .id(egui::Id::new("go_to_box"))
+                        .hint_text("Go to… a card, NPC, place, item, session or screen")
+                        .desired_width(f32::INFINITY),
+                );
+                r.request_focus();
+                if r.changed() {
+                    row = 0;
+                }
+                if results.is_empty() {
+                    ui.weak(if q.is_empty() {
+                        "Type a name. ↑ ↓ to choose, Enter to open, Esc to close."
+                    } else {
+                        "Nothing matches."
+                    });
+                }
+                egui::ScrollArea::vertical().max_height(380.0).show(ui, |ui| {
+                    for (k, (name, kind, _, _)) in results.iter().enumerate() {
+                        let resp = ui.add(
+                            egui::Button::selectable(k == row, egui::RichText::new(format!("{name}   ")).strong())
+                                .right_text(egui::RichText::new(*kind).weak())
+                                .truncate(),
+                        );
+                        if k == row && (up || down) {
+                            resp.scroll_to_me(None);
+                        }
+                        if resp.clicked() {
+                            chosen = Some(k);
+                        }
+                    }
+                });
+            });
+        if ctx.input(|i| i.key_pressed(Key::Escape)) {
+            open = false;
+        }
+        if let Some(k) = chosen {
+            let (_, _, view, link) = results[k].clone();
+            if let Some(v) = view {
+                self.view = v;
+            }
+            if let Some(l) = link {
+                self.navigate(ctx, l);
+            }
+            open = false;
+        }
+        if open {
+            self.go_to = Some((query, row));
         }
     }
 }
@@ -1591,7 +2012,24 @@ impl eframe::App for App {
         if let Some(doc) = &mut self.doc {
             doc.now = self.sh.now;
             // edits only happen in frames with input (or actions, marked below)
-            if ctx.input(|i| !i.events.is_empty() || i.pointer.any_down() || !i.raw.dropped_files.is_empty()) {
+            // (just moving the mouse can't change anything: don't re-check the whole campaign for it)
+            let could_edit = ctx.input(|i| {
+                i.pointer.any_down()
+                    || !i.raw.dropped_files.is_empty()
+                    || i.events.iter().any(|e| {
+                        matches!(
+                            e,
+                            egui::Event::Key { .. }
+                                | egui::Event::Text(_)
+                                | egui::Event::Paste(_)
+                                | egui::Event::Cut
+                                | egui::Event::PointerButton { .. }
+                                | egui::Event::Ime(_)
+                                | egui::Event::MouseWheel { .. }
+                        )
+                    })
+            });
+            if could_edit {
                 doc.touched = true;
             }
         }
@@ -1794,6 +2232,11 @@ impl eframe::App for App {
             ctx.request_repaint_after(std::time::Duration::from_secs(1));
         }
 
+        self.go_to_window(ctx);
+        sc::sheet_window(ctx, &mut self.show_shortcuts);
+        if self.doc.is_some() {
+            self.track_place();
+        }
         if views::wiki::quit_prompt(ctx, &mut self.sh, &mut self.vs.wiki) {
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
         }

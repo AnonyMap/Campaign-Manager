@@ -345,6 +345,9 @@ pub fn handout_window(ctx: &egui::Context, doc: &mut Doc, sh: &mut Shared, h: &m
     }
     if apply {
         let mut msg = Vec::new();
+        // (someone deleted while this window was open can't receive a share: split between
+        // the ones still here, so no coins vanish)
+        h.recipients.retain(|l| doc.c.link_name(l).is_some());
         if !h.coins.is_zero() && !h.recipients.is_empty() {
             for (l, share) in h.recipients.iter().zip(h.coins.split(h.recipients.len())) {
                 doc.c.give_coins(l, &share);

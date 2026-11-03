@@ -28,6 +28,8 @@ pub struct State {
     /// Selling gives the item away without taking payment.
     free: bool,
     stock_size: usize,
+    /// The shop `stock_size` belongs to.
+    stock_size_shop: Option<Id>,
 }
 
 fn kinds(doc: &Doc) -> Vec<String> {
@@ -133,6 +135,15 @@ fn list(ui: &mut egui::Ui, doc: &mut Doc, sh: &mut Shared, st: &mut State) {
         v.dedup_by(|a, b| a.eq_ignore_ascii_case(b));
         v
     };
+    // a kind filter that no longer matches any place (or whose menu is hidden) would hide everything
+    if st
+        .kind
+        .as_ref()
+        .map(|k| all_kinds.len() <= 1 || !all_kinds.iter().any(|x| x.eq_ignore_ascii_case(k)))
+        .unwrap_or(false)
+    {
+        st.kind = None;
+    }
     if all_kinds.len() > 1 {
         egui::ComboBox::from_id_salt("place_kind_f")
             .width(160.0)
@@ -701,8 +712,10 @@ fn shop(ui: &mut egui::Ui, doc: &mut Doc, sh: &mut Shared, st: &mut State, id: I
     let mut remove_shop = false;
     {
         let shop = doc.c.location_mut(id).unwrap().shop.as_mut().unwrap();
-        if st.stock_size == 0 {
+        // (how many wares to generate is remembered per shop, not shared between them)
+        if st.stock_size == 0 || st.stock_size_shop != Some(id) {
             st.stock_size = shop.theme.default_size();
+            st.stock_size_shop = Some(id);
         }
         ui.horizontal_wrapped(|ui| {
             ui.label("Sells");
@@ -915,6 +928,10 @@ fn stock_table(ui: &mut egui::Ui, doc: &mut Doc, sh: &mut Shared, st: &mut State
     if let Some((i, to)) = sell {
         let Some(e) = shop.stock.get(i).cloned() else { return };
         let who = doc.c.link_name(&to).unwrap_or_default();
+        if e.qty == 0 {
+            sh.toast(format!("{} is out of stock", e.item.name));
+            return;
+        }
         if !st.free {
             let paid = doc.c.character_core_mut(&to).map(|c| c.coins.pay(e.price_gp)).unwrap_or(false);
             if !paid {

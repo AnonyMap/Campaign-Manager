@@ -14,6 +14,17 @@ pub fn show(ui: &mut egui::Ui, doc: &mut Doc, sh: &mut Shared) {
                 .desired_width(f32::INFINITY),
         );
         ui_util::markdown_editor(ui, ("campaign_desc", doc.c.id), &mut doc.c.description, &mut sh.md, 4);
+        {
+            use crate::shortcuts as sc;
+            let ctx = ui.ctx().clone();
+            ui.weak(format!(
+                "Tip: {} jumps to any card, NPC, place or screen by name · {} / {} go back and forward · {} lists every shortcut",
+                sc::label(&ctx, &sc::GO_TO),
+                sc::label(&ctx, &sc::BACK),
+                sc::label(&ctx, &sc::FORWARD),
+                sc::label(&ctx, &sc::SHORTCUTS)
+            ));
+        }
         ui.separator();
         let c = &doc.c;
         ui.columns(2, |cols| {

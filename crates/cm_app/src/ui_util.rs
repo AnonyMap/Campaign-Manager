@@ -59,10 +59,18 @@ pub fn markdown_editor(ui: &mut Ui, id_salt: impl std::hash::Hash, text: &mut St
         ui.selectable_value(&mut mode, MdMode::Edit, "Write");
         ui.selectable_value(&mut mode, MdMode::Preview, "Preview");
         ui.selectable_value(&mut mode, MdMode::Split, "Split");
+        let ctx = ui.ctx().clone();
+        let k = |x: &egui::KeyboardShortcut| crate::shortcuts::label(&ctx, x);
         let hint = if formatted {
-            "Ctrl+B bold · Ctrl+I italic · [[Name]] links to cards, NPCs or wiki pages"
+            format!(
+                "{} bold · {} italic · {} [[link]] to cards, NPCs or wiki pages · {} all shortcuts",
+                k(&crate::shortcuts::BOLD),
+                k(&crate::shortcuts::ITALIC),
+                k(&crate::shortcuts::LINK),
+                k(&crate::shortcuts::SHORTCUTS)
+            )
         } else {
-            "Markdown · [[Name]] links to cards, NPCs or wiki pages"
+            "Markdown · [[Name]] links to cards, NPCs or wiki pages".to_string()
         };
         ui.add(egui::Label::new(RichText::new(hint).weak()).truncate());
     });
@@ -454,10 +462,106 @@ pub fn card_title(c: &cm_core::StoryCard) -> String {
 /// A list row that looks like a selectable table cell.
 pub fn list_row(ui: &mut Ui, selected: bool, text: impl Into<egui::WidgetText>) -> egui::Response {
     let w = ui.available_width();
-    ui.allocate_ui_with_layout(egui::vec2(w, 0.0), egui::Layout::top_down_justified(egui::Align::Min), |ui| {
-        ui.add(egui::Button::selectable(selected, text).truncate())
-    })
-    .inner
+    let mut r = ui
+        .allocate_ui_with_layout(egui::vec2(w, 0.0), egui::Layout::top_down_justified(egui::Align::Min), |ui| {
+            ui.add(egui::Button::selectable(selected, text).truncate())
+        })
+        .inner;
+    if list_nav_row(ui.ctx(), r.id, selected) {
+        // ↑ / ↓ / Home / End landed here: act as if it was clicked
+        r.flags.insert(egui::response::Flags::FAKE_PRIMARY_CLICKED);
+        r.scroll_to_me(None);
+        ui.ctx().request_repaint();
+    }
+    r
+}
+
+/// Height of one [`list_row`] (for lists that only draw the rows on screen): a button's text
+/// plus its padding, never less than egui's minimum for clickable things.
+pub fn list_row_height(ui: &Ui) -> f32 {
+    let text = ui.text_style_height(&egui::TextStyle::Button);
+    (text + 2.0 * ui.spacing().button_padding.y).max(ui.spacing().interact_size.y)
+}
+
+/// Keyboard movement through whichever list has a selected row (see [`list_row`]).
+#[derive(Clone, Default)]
+struct ListNav {
+    /// This frame: 1 down, -1 up, 2 first, 3 last, 0 nothing.
+    dir: i8,
+    /// Down: the selected row was drawn, so the next row drawn is the new selection.
+    armed: bool,
+    done: bool,
+    prev: Option<egui::Id>,
+    first: Option<egui::Id>,
+    last: Option<egui::Id>,
+    /// A row to select next frame (moving up, or to the end, needs a row already drawn).
+    next_target: Option<egui::Id>,
+    target: Option<egui::Id>,
+}
+
+fn list_nav_id() -> egui::Id {
+    egui::Id::new("list_keyboard_nav")
+}
+
+/// Start of a frame: `dir` is the arrow key pressed (1 ↓, -1 ↑, 2 Home, 3 End, 0 none).
+pub fn list_nav_begin(ctx: &egui::Context, dir: i8) {
+    let old: ListNav = ctx.data_mut(|d| d.get_temp(list_nav_id())).unwrap_or_default();
+    let mut target = old.next_target;
+    if target.is_none() && !old.done {
+        target = match old.dir {
+            // ↓ with nothing selected starts at the top (but not when already at the bottom)
+            1 if !old.armed => old.first,
+            -1 | 3 => old.last,
+            _ => None,
+        };
+    }
+    if target.is_some() {
+        ctx.request_repaint();
+    }
+    let nav = ListNav {
+        dir,
+        target,
+        ..Default::default()
+    };
+    ctx.data_mut(|d| d.insert_temp(list_nav_id(), nav));
+}
+
+/// Called for each list row drawn; true if this row should become the selection.
+fn list_nav_row(ctx: &egui::Context, id: egui::Id, selected: bool) -> bool {
+    let mut nav: ListNav = ctx.data_mut(|d| d.get_temp(list_nav_id())).unwrap_or_default();
+    if nav.dir == 0 && nav.target.is_none() {
+        return false;
+    }
+    let mut fire = false;
+    if nav.target == Some(id) {
+        fire = true;
+        nav.target = None;
+        nav.done = true;
+    } else if !nav.done {
+        match nav.dir {
+            1 if nav.armed => {
+                fire = true;
+                nav.done = true;
+            }
+            1 if selected => nav.armed = true,
+            -1 if selected => {
+                nav.next_target = nav.prev;
+                nav.done = true;
+            }
+            2 => {
+                fire = !selected;
+                nav.done = true;
+            }
+            _ => {}
+        }
+    }
+    if nav.first.is_none() {
+        nav.first = Some(id);
+    }
+    nav.last = Some(id);
+    nav.prev = Some(id);
+    ctx.data_mut(|d| d.insert_temp(list_nav_id(), nav));
+    fire
 }
 
 /// Small coloured square.
