@@ -43,7 +43,7 @@ impl FontChoice {
     }
 }
 
-/// Optional colour overrides on top of the light/dark base theme.
+/// Optional color overrides on top of the light/dark base theme.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(default)]
 pub struct CustomColors {
@@ -60,7 +60,7 @@ pub struct CustomColors {
 pub struct AppSettings {
     /// Selected theme: a built-in name, one of `user_themes`, or "Follow system".
     pub theme_name: Option<String>,
-    /// Themes the user customised and saved.
+    /// Themes the user customized and saved.
     pub user_themes: Vec<Theme>,
     /// Legacy (v0.1.0) fields, migrated into `theme_name` / `user_themes` on load.
     pub theme: ThemeMode,
@@ -155,7 +155,7 @@ impl AppSettings {
         s
     }
 
-    /// Convert v0.1.0 theme settings (light/dark + optional custom colours).
+    /// Convert v0.1.0 theme settings (light/dark + optional custom colors).
     pub fn migrate(&mut self) {
         if self.theme_name.is_some() {
             return;
@@ -165,7 +165,7 @@ impl AppSettings {
             let dark = self.theme == ThemeMode::Dark;
             let base = if dark { themes::DARK.palette } else { themes::LIGHT.palette };
             let t = Theme {
-                name: "My colours".into(),
+                name: "My colors".into(),
                 dark,
                 palette: themes::Palette {
                     background: cc.background,
@@ -180,7 +180,7 @@ impl AppSettings {
                 },
             };
             self.user_themes.push(t);
-            self.theme_name = Some("My colours".into());
+            self.theme_name = Some("My colors".into());
         } else {
             self.theme_name = Some(
                 match self.theme {
@@ -256,7 +256,7 @@ impl AppSettings {
         self.last_campaign = Some(path.to_string());
     }
 
-    /// Apply theme, colours and text sizes to the egui context.
+    /// Apply theme, colors and text sizes to the egui context.
     pub fn apply_style(&self, ctx: &egui::Context) {
         let t = self.active_theme(ctx);
         let dark = t.dark;

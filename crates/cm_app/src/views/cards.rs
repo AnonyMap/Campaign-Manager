@@ -285,7 +285,7 @@ fn editor(ui: &mut egui::Ui, doc: &mut Doc, sh: &mut Shared, id: Id, qu: &mut cr
                 });
                 ui.end_row();
 
-                ui.label("Colour");
+                ui.label("Color");
                 ui_util::color_opt(ui, &mut card.color);
                 ui.end_row();
 

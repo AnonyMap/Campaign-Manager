@@ -900,7 +900,7 @@ pub fn formatted_edit(ui: &mut Ui, id: egui::Id, text: &mut String, rows: usize,
         None
     };
     for (chars, kind, done, line) in &decos {
-        // a click on a checkbox ticks it
+        // a click on a checkbox checks it
         if *kind == 2 {
             if let Some(c) = clicked_at {
                 if c >= chars.start && c <= chars.end {
@@ -914,7 +914,7 @@ pub fn formatted_edit(ui: &mut Ui, id: egui::Id, text: &mut String, rows: usize,
         }
         let a = out.galley.pos_from_cursor(CCursor::new(chars.start)).translate(out.galley_pos.to_vec2());
         let b = out.galley.pos_from_cursor(CCursor::new(chars.end)).translate(out.galley_pos.to_vec2());
-        // the row may include the paragraph gap below the text: centre on the text itself
+        // the row may include the paragraph gap below the text: center on the text itself
         let text_h = ui.fonts_mut(|f| f.row_height(&egui::TextStyle::Body.resolve(ui.style())));
         let rect = egui::Rect::from_min_max(a.min, egui::pos2(b.max.x, a.min.y + text_h.min(a.height())));
         if *kind == 1 {
@@ -1078,7 +1078,7 @@ mod tests {
     }
 }
 
-/// Randomised checks: whatever text and selection, the editor's helpers never panic, keep
+/// Randomized checks: whatever text and selection, the editor's helpers never panic, keep
 /// the text valid, and lay out exactly the text they were given.
 #[cfg(test)]
 mod fuzz {

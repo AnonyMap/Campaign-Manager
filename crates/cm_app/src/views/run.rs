@@ -107,7 +107,7 @@ fn header(ui: &mut egui::Ui, doc: &mut Doc, sh: &mut Shared, st: &mut State, sid
         let chip = match status {
             SessionStatus::Planned => RichText::new("Planned"),
             SessionStatus::Played => RichText::new("✔ Played").color(done_color(ui)),
-            SessionStatus::Cancelled => RichText::new("Cancelled").weak(),
+            SessionStatus::Cancelled => RichText::new("Canceled").weak(),
         };
         ui.label(chip);
     });
@@ -569,7 +569,7 @@ fn side(ui: &mut egui::Ui, doc: &mut Doc, sh: &mut Shared, st: &mut State, sid: 
     }
 }
 
-/// Quests the party is on, with objectives to tick off during play.
+/// Quests the party is on, with objectives to check off during play.
 fn active_quests(ui: &mut egui::Ui, doc: &mut Doc, sh: &mut Shared) {
     let ids: Vec<Id> = doc
         .c

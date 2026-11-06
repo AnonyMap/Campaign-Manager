@@ -257,7 +257,7 @@ fn list_panel(ui: &mut egui::Ui, doc: &mut Doc, sh: &mut Shared, st: &mut State)
                     let label = if st.select_mode { "✔ Done selecting" } else { "☑ Select" };
                     if ui
                         .add(egui::Button::new(label).selected(st.select_mode))
-                        .on_hover_text("Tick several stat blocks to delete them or move them to another collection")
+                        .on_hover_text("Check several stat blocks to delete them or move them to another collection")
                         .clicked()
                     {
                         st.select_mode = !st.select_mode;
@@ -495,7 +495,7 @@ fn bulk_bar(ui: &mut egui::Ui, doc: &mut Doc, sh: &mut Shared, st: &mut State, s
                 ui.label(RichText::new(format!("{n} selected")).strong());
                 if ui
                     .small_button("All shown")
-                    .on_hover_text("Tick everything in the list (shift-click ticks a range)")
+                    .on_hover_text("Check everything in the list (shift-click checks a range)")
                     .clicked()
                 {
                     st.checked.extend(shown.iter().copied());

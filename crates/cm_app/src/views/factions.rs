@@ -1,4 +1,4 @@
-//! Factions: organisations, their goals, attitude to the party and member NPCs.
+//! Factions: organizations, their goals, attitude to the party and member NPCs.
 
 use cm_core::{Attitude, Faction, Id, Link};
 
@@ -65,7 +65,7 @@ pub fn show(ui: &mut egui::Ui, doc: &mut Doc, sh: &mut Shared, st: &mut State) {
                 }
             });
             ui.separator();
-            ui.label("Colour");
+            ui.label("Color");
             ui_util::color_opt(ui, &mut f.color);
         });
         ui.horizontal_top(|ui| match f.image.clone() {

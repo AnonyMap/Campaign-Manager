@@ -1,4 +1,4 @@
-//! Randomised tests: every function that reads text typed by a user, pasted from an AI or
+//! Randomized tests: every function that reads text typed by a user, pasted from an AI or
 //! loaded from a file must cope with anything (multi-byte characters, stray Markdown,
 //! half-finished input) without panicking, and a few must keep simple promises.
 

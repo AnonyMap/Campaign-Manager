@@ -311,7 +311,7 @@ fn big_campaign_frame_times() {
     }
     let t = Instant::now();
     let json = cm_core::storage::to_json(&c).unwrap();
-    eprintln!("campaign.json: {} KB, serialise {:?}", json.len() / 1024, t.elapsed());
+    eprintln!("campaign.json: {} KB, serialize {:?}", json.len() / 1024, t.elapsed());
     cm_core::storage::save(&c, &dir).unwrap();
     let mut h = harness(dir);
     h.run_steps(3);

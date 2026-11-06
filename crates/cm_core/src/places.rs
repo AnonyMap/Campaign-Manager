@@ -178,7 +178,7 @@ const SHOP_NOUN: &[(ShopTheme, &[&str])] = &[
     ),
     (
         ShopTheme::Alchemist,
-        &["Apothecary", "Elixirs", "Remedies", "Tinctures", "Potions", "Draughts", "Alchemy", "Brews"],
+        &["Apothecary", "Elixirs", "Remedies", "Tinctures", "Potions", "Tonics", "Alchemy", "Brews"],
     ),
     (
         ShopTheme::Magic,

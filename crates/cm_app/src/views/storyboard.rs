@@ -24,7 +24,7 @@ pub struct State {
     /// Board position of the last right-click (for "new card here").
     menu_pos: Option<Pos2>,
     hide_done: bool,
-    /// Size of the board area last frame (to centre on a card).
+    /// Size of the board area last frame (to center on a card).
     view_size: Vec2,
 }
 
@@ -45,7 +45,7 @@ impl Default for State {
 }
 
 impl State {
-    /// Select a card and centre the board on it, putting it on the board first if needed.
+    /// Select a card and center the board on it, putting it on the board first if needed.
     pub fn focus(&mut self, doc: &mut Doc, id: Id) {
         let mid = vec2(self.view_size.x * 0.5, self.view_size.y * 0.5);
         if let Some(card) = doc.c.card_mut(id) {

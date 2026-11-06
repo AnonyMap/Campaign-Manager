@@ -55,12 +55,12 @@ pub fn is_campaign_dir(path: &Path) -> bool {
     campaign_dir(path).join(CAMPAIGN_FILE).is_file()
 }
 
-/// Serialise to pretty JSON.
+/// Serialize to pretty JSON.
 pub fn to_json(c: &Campaign) -> Result<String, StorageError> {
     Ok(serde_json::to_string_pretty(c)?)
 }
 
-/// Serialise without indentation: faster and smaller, for in-memory snapshots (undo).
+/// Serialize without indentation: faster and smaller, for in-memory snapshots (undo).
 pub fn to_json_compact(c: &Campaign) -> Result<String, StorageError> {
     Ok(serde_json::to_string(c)?)
 }

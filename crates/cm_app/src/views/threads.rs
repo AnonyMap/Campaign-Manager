@@ -69,7 +69,7 @@ pub fn show(ui: &mut egui::Ui, doc: &mut Doc, sh: &mut Shared, st: &mut State) {
                 ui.selectable_value(&mut t.status, s, s.label());
             }
             ui.separator();
-            ui.label("Colour");
+            ui.label("Color");
             ui_util::color_opt(ui, &mut t.color);
         });
         section(ui, "Description");

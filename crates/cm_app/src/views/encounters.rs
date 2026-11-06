@@ -229,7 +229,7 @@ pub fn show(ui: &mut egui::Ui, doc: &mut Doc, sh: &mut Shared, st: &mut State) {
                         };
                         if ui
                             .add(egui::Button::new(label).small())
-                            .on_hover_text("Click to switch enemy / ally. Allies don't count towards difficulty.")
+                            .on_hover_text("Click to switch enemy / ally. Allies don't count toward difficulty.")
                             .clicked()
                         {
                             en.ally = !en.ally;

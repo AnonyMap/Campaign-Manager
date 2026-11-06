@@ -240,7 +240,7 @@ pub fn fmt_date_short(ui: &Ui, d: NaiveDate) -> String {
     cm_core::calendar::format_date_short(d, date_prefs(ui).1)
 }
 
-/// Button showing a date; opens a month calendar that honours the week-start setting.
+/// Button showing a date; opens a month calendar that honors the week-start setting.
 pub fn date_picker(ui: &mut Ui, id_salt: impl std::hash::Hash, date: &mut NaiveDate) -> bool {
     use chrono::Datelike;
     let (week, _) = date_prefs(ui);
@@ -386,13 +386,13 @@ pub fn color_opt(ui: &mut Ui, value: &mut Option<[u8; 3]>) -> bool {
     ui.horizontal(|ui| match value {
         Some(c) => {
             changed |= ui.color_edit_button_srgb(c).changed();
-            if ui.small_button("✖").on_hover_text("No colour").clicked() {
+            if ui.small_button("✖").on_hover_text("No color").clicked() {
                 *value = None;
                 changed = true;
             }
         }
         None => {
-            if ui.button("Add colour").clicked() {
+            if ui.button("Add color").clicked() {
                 *value = Some([90, 130, 200]);
                 changed = true;
             }
@@ -564,7 +564,7 @@ fn list_nav_row(ctx: &egui::Context, id: egui::Id, selected: bool) -> bool {
     fire
 }
 
-/// Small coloured square.
+/// Small colored square.
 pub fn swatch(ui: &mut Ui, color: Option<[u8; 3]>) {
     let (rect, _) = ui.allocate_exact_size(egui::vec2(10.0, 10.0), egui::Sense::hover());
     if let Some(c) = color {

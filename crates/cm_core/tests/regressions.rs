@@ -212,7 +212,7 @@ fn schedules_with_odd_dates_answer_quickly() {
         skipped_dates: vec![],
     };
     let _ = s.date_for_session(200);
-    // and normal use still works, skipping cancelled dates
+    // and normal use still works, skipping canceled dates
     let s = SessionSchedule {
         first_date: NaiveDate::from_ymd_opt(2026, 1, 3),
         first_number: 1,

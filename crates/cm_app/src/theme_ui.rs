@@ -177,7 +177,7 @@ fn editor(ui: &mut egui::Ui, s: &mut AppSettings) {
         ui.horizontal(|ui| {
             if ui
                 .button("🎨 Customize this theme…")
-                .on_hover_text("Make an editable copy you can recolour and keep")
+                .on_hover_text("Make an editable copy you can recolor and keep")
                 .clicked()
             {
                 let ctx = ui.ctx().clone();
@@ -211,7 +211,7 @@ fn editor(ui: &mut egui::Ui, s: &mut AppSettings) {
                     rename = Some(buf);
                 }
                 ui.checkbox(&mut t.dark, "Dark theme")
-                    .on_hover_text("Tells the app (and Markdown/code colours) this is a dark theme");
+                    .on_hover_text("Tells the app (and Markdown/code colors) this is a dark theme");
             });
             egui::Grid::new("theme_edit").num_columns(4).spacing([12.0, 6.0]).show(ui, |ui| {
                 let p = &mut t.palette;
@@ -236,7 +236,7 @@ fn editor(ui: &mut egui::Ui, s: &mut AppSettings) {
             });
             let contrast = (themes::luminance(t.palette.text) - themes::luminance(t.palette.panel)).abs();
             if contrast < 0.45 {
-                ui.colored_label(ui.visuals().warn_fg_color, "⚠ Text and panel colours are close — this may be hard to read.");
+                ui.colored_label(ui.visuals().warn_fg_color, "⚠ Text and panel colors are close — this may be hard to read.");
             }
         }
         ui.horizontal(|ui| {

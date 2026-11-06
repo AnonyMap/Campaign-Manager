@@ -724,7 +724,7 @@ pub fn statblock_from_value(v: &Value, default_source: &str) -> Result<(StatBloc
     Ok((sb, w))
 }
 
-/// Serialise stat blocks to the import format (for sharing a bestiary).
+/// Serialize stat blocks to the import format (for sharing a bestiary).
 pub fn export_json(blocks: &[StatBlock], source: &str) -> String {
     let list: Vec<Value> = blocks.iter().map(to_value).collect();
     let doc = serde_json::json!({

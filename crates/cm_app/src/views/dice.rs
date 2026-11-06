@@ -57,7 +57,7 @@ fn seg_color(kind: SegKind, ui: &egui::Ui) -> Option<Color32> {
     }
 }
 
-/// Show a roll's breakdown with coloured dice.
+/// Show a roll's breakdown with colored dice.
 pub fn breakdown_label(ui: &mut egui::Ui, rec: &RollRecord) {
     let mut job = egui::text::LayoutJob::default();
     let font = egui::TextStyle::Monospace.resolve(ui.style());

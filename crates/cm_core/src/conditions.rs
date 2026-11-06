@@ -1,4 +1,4 @@
-//! Conditions from the 2024 (5.5e) rules, summarised in plain language, plus support for
+//! Conditions from the 2024 (5.5e) rules, summarized in plain language, plus support for
 //! DM-defined custom conditions. Summaries are short paraphrases for at-the-table reference.
 
 use serde::{Deserialize, Serialize};

@@ -1,4 +1,4 @@
-//! Colour themes. Every theme (built-in or saved by the user) is a full palette applied
+//! Color themes. Every theme (built-in or saved by the user) is a full palette applied
 //! the same way, so all surfaces — panels, fields, buttons, selection, borders — match.
 
 use egui::{Color32, Stroke, Visuals};

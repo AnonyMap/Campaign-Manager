@@ -236,7 +236,7 @@ impl Default for SessionSchedule {
 }
 
 impl SessionSchedule {
-    /// Walk the schedule's real sessions in order: (number, date), skipping cancelled dates.
+    /// Walk the schedule's real sessions in order: (number, date), skipping canceled dates.
     /// Stops after a generous number of sessions or when dates run out of range.
     fn walk(&self) -> impl Iterator<Item = (u32, NaiveDate)> + '_ {
         let step = Duration::days(self.interval_days as i64);
@@ -260,7 +260,7 @@ impl SessionSchedule {
         })
     }
 
-    /// Expected real-world date for session `n`, honouring skipped dates.
+    /// Expected real-world date for session `n`, honoring skipped dates.
     pub fn date_for_session(&self, n: u32) -> Option<NaiveDate> {
         if n < self.first_number {
             return None;

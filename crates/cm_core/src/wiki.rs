@@ -1062,7 +1062,7 @@ mod tests {
         };
         let md = card_to_markdown(&c, &card);
         assert!(md.contains("# Ambush") && md.contains("Goblins at the bridge"));
-        // path traversal is neutralised
+        // path traversal is neutralized
         assert_eq!(note_rel_path("../../etc", "passwd"), "etc/passwd.md");
     }
 

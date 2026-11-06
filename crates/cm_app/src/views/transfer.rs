@@ -239,7 +239,7 @@ fn body(ui: &mut egui::Ui, doc: Option<&mut Doc>, sh: &mut Shared, st: &mut Stat
     if parts.contains(&Part::Npcs) && !parts.contains(&Part::Bestiary) && src.campaign.npcs.iter().any(|n| n.statblock.is_some()) {
         ui.colored_label(
             ui.visuals().warn_fg_color,
-            "Some NPCs use bestiary stat blocks — tick the bestiary too, or they'll lose them.",
+            "Some NPCs use bestiary stat blocks — check the bestiary too, or they'll lose them.",
         );
     }
     if parts.contains(&Part::Sessions) && !parts.contains(&Part::Story) && !src.campaign.story_cards.is_empty() {

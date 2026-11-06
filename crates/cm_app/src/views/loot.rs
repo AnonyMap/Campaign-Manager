@@ -256,7 +256,7 @@ fn options(ui: &mut egui::Ui, doc: &mut Doc, sh: &mut Shared, st: &mut State) {
     }
     ui.separator();
     ui.checkbox(&mut st.srd_too, "Use SRD 5.2 items as well as mine")
-        .on_hover_text("Untick to draw magic items only from your own item library");
+        .on_hover_text("Uncheck to draw magic items only from your own item library");
     if doc.c.items.is_empty() && !st.srd_too {
         ui.colored_label(ui.visuals().warn_fg_color, "Your item library is empty, so no magic items can be picked.");
     }

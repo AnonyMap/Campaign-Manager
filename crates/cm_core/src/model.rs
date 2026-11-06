@@ -1,4 +1,4 @@
-//! Campaign data model. Everything serialises to plain JSON so the campaign file can be
+//! Campaign data model. Everything serializes to plain JSON so the campaign file can be
 //! read on any platform (and by other tools). All structs use `#[serde(default)]` so that
 //! files written by older versions still load after new fields are added.
 
@@ -259,7 +259,7 @@ impl Link {
 #[serde(default)]
 pub struct MapPin {
     pub map_id: Id,
-    /// Normalised position, 0..1 across the image.
+    /// Normalized position, 0..1 across the image.
     pub x: f32,
     pub y: f32,
 }
@@ -283,7 +283,7 @@ pub struct StoryCard {
     /// Free-form markdown. A DM can ignore every other field and just write here.
     pub body: String,
     pub status: CardStatus,
-    /// RGB accent colour.
+    /// RGB accent color.
     pub color: Option<[u8; 3]>,
     pub in_ideas_pile: bool,
     pub threads: Vec<Id>,
@@ -353,7 +353,7 @@ pub struct Quest {
     /// Promised payment.
     pub reward_coins: Coins,
     pub reward_items: Vec<Item>,
-    /// Anything else: favours, titles, land, XP…
+    /// Anything else: favors, titles, land, XP…
     pub reward_text: String,
     pub xp: Option<u32>,
     /// Session numbers when it was taken and when it ended.
@@ -515,7 +515,7 @@ impl SessionStatus {
         match self {
             SessionStatus::Planned => "Planned",
             SessionStatus::Played => "Played",
-            SessionStatus::Cancelled => "Cancelled",
+            SessionStatus::Cancelled => "Canceled",
         }
     }
 }
@@ -683,7 +683,7 @@ pub struct CharacterCore {
     pub abilities: AbilityScores,
     pub passive_perception: Option<i32>,
     pub custom_rolls: Vec<CustomRoll>,
-    /// Extra labelled fields the DM adds (e.g. "Alignment" = "CN").
+    /// Extra labeled fields the DM adds (e.g. "Alignment" = "CN").
     pub extra_fields: Vec<(String, String)>,
     /// Free-form markdown notes.
     pub notes: String,

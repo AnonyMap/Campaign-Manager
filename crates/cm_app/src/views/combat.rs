@@ -104,7 +104,7 @@ fn split_sign(buf: &str) -> (Option<HpChangeKind>, String) {
     }
 }
 
-/// "= 11" for plain maths, "2d6 (2–12)" for dice.
+/// "= 11" for plain math, "2d6 (2–12)" for dice.
 fn hp_preview(amount: &str) -> Result<String, String> {
     let e = cm_core::dice::DiceExpr::parse(amount).map_err(|e| e.to_string())?;
     if e.is_constant() {
@@ -441,7 +441,7 @@ fn table(ui: &mut egui::Ui, doc: &mut Doc, sh: &mut Shared, st: &mut State, enc:
         return;
     }
     ui.weak(
-        "Damage / heal: type an amount — maths and dice work (5+6 → 11, 2d6 → rolled) — then click −Dmg or +Heal. Enter = damage; start with + to heal (+6).",
+        "Damage / heal: type an amount — math and dice work (5+6 → 11, 2d6 → rolled) — then click −Dmg or +Heal. Enter = damage; start with + to heal (+6).",
     );
     let current = if enc.started { enc.combatants.get(enc.turn).map(|c| c.id) } else { None };
     let conds: Vec<ConditionDef> = doc.c.all_conditions();
@@ -540,7 +540,7 @@ fn table(ui: &mut egui::Ui, doc: &mut Doc, sh: &mut Shared, st: &mut State, enc:
                     if r.hovered() {
                         ui.ctx().set_cursor_icon(egui::CursorIcon::Grab);
                     }
-                    r.on_hover_text("Drag to move in the turn order (sets initiative from the neighbours; no roll needed)");
+                    r.on_hover_text("Drag to move in the turn order (sets initiative from the neighbors; no roll needed)");
                 });
                 cell(ui, SEL_W, |ui| {
                     let mut on = st.targets.iter().any(|t| t.0 == cid);
@@ -833,7 +833,7 @@ fn table(ui: &mut egui::Ui, doc: &mut Doc, sh: &mut Shared, st: &mut State, enc:
             rr.scroll_to_me(None);
             st.scroll_to_selected = false;
         }
-        // A coloured bar down the left edge joins combatants that share an initiative roll.
+        // A colored bar down the left edge joins combatants that share an initiative roll.
         if let Some(g) = enc.get(cid).and_then(|c| c.init_group) {
             let h = (g.as_u128() % 360) as f32 / 360.0;
             let col: Color32 = egui::ecolor::Hsva::new(h, 0.75, if ui.visuals().dark_mode { 0.85 } else { 0.6 }, 1.0).into();
@@ -1198,14 +1198,14 @@ fn group_bar(ui: &mut egui::Ui, campaign: &cm_core::Campaign, sh: &mut Shared, s
     if st.targets.is_empty() {
         if let Some(g) = last_group {
             ui.horizontal(|ui| {
-                ui.weak("Tick combatants to damage or heal several at once.");
+                ui.weak("Check the boxes next to combatants to damage or heal several at once.");
                 if ui.small_button("↺ Undo last group roll").clicked() {
                     let n = enc.undo_group(g);
                     sh.toast(format!("Undid the group roll on {}", ui_util::plural(n, "combatant")));
                 }
             });
         } else {
-            ui.weak("Tip: tick several combatants to damage or heal them all with one roll. Drag the dotted handle to move someone in the turn order.");
+            ui.weak("Tip: check several combatants to damage or heal them all with one roll. Drag the dotted handle to move someone in the turn order.");
         }
         return;
     }
@@ -1227,14 +1227,14 @@ fn group_bar(ui: &mut egui::Ui, campaign: &cm_core::Campaign, sh: &mut Shared, s
                 let mut kind = None;
                 if ui
                     .button(RichText::new("−Dmg all").color(bloodied_color(ui)))
-                    .on_hover_text("Roll once, damage every ticked combatant")
+                    .on_hover_text("Roll once, damage every checked combatant")
                     .clicked()
                 {
                     kind = Some(HpChangeKind::Damage);
                 }
                 if ui
                     .button(RichText::new("+Heal all").color(heal_color(ui)))
-                    .on_hover_text("Roll once, heal every ticked combatant")
+                    .on_hover_text("Roll once, heal every checked combatant")
                     .clicked()
                 {
                     kind = Some(HpChangeKind::Heal);
@@ -1301,7 +1301,7 @@ fn group_bar(ui: &mut egui::Ui, campaign: &cm_core::Campaign, sh: &mut Shared, s
                     };
                     let r = ui
                         .add(egui::Button::new(text.small()).corner_radius(8))
-                        .on_hover_text("Click: full → half (made the save / resistant) → none → ×2 (vulnerable). Right-click: untick.");
+                        .on_hover_text("Click: full → half (made the save / resistant) → none → ×2 (vulnerable). Right-click: uncheck.");
                     if r.clicked() {
                         *portion = match portion {
                             Portion::Full => Portion::Half,
@@ -1330,7 +1330,7 @@ fn group_bar(ui: &mut egui::Ui, campaign: &cm_core::Campaign, sh: &mut Shared, s
                     let ids: Vec<Id> = st.targets.iter().map(|t| t.0).collect();
                     if ui
                         .small_button("🔗 Roll together")
-                        .on_hover_text("One initiative roll shared by all ticked combatants")
+                        .on_hover_text("One initiative roll shared by all checked combatants")
                         .clicked()
                     {
                         enc.link_initiative(&ids);

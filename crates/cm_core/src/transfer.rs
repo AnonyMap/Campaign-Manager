@@ -4,7 +4,7 @@
 //!
 //! A package (`.cmpack`) is a zip file holding `campaign.json` (the chosen parts, in the
 //! normal campaign format) and the `assets/` images those parts use. Everything keeps its
-//! id, so importing the same thing twice can be recognised (skip, replace or keep both), and
+//! id, so importing the same thing twice can be recognized (skip, replace or keep both), and
 //! links between imported things stay intact. Links to things that weren't brought along are
 //! removed after an import.
 

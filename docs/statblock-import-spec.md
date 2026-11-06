@@ -13,7 +13,7 @@ in the app you can assign one to any number of NPCs and add them to encounters.
    *"Convert every stat block in the attached file using these instructions."*
 3. Copy the AI's whole reply, go back to **Bestiary → Import…**, paste it into the box and
    click **Read**. (Or save the reply as a `.json` file and use **Choose file…**.)
-4. Check the preview and any warnings, untick anything you don't want, and click **Import**.
+4. Check the preview and any warnings, uncheck anything you don’t want, and click **Import**.
    They go into their own **collection** (named after the file's `source`, e.g. "Essential
    NPCs"; you can rename it in the import window), so a whole book stays separate from your own
    stat blocks. In the Bestiary, filter by collection, and use **Select** to move or delete many

@@ -1,4 +1,4 @@
-//! NPC name generator. Built-in pools per species plus background flavour (titles,
+//! NPC name generator. Built-in pools per species plus background flavor (titles,
 //! epithets, occupational surnames), a syllable generator for effectively unlimited
 //! variety, and DM-defined custom pools stored in the campaign.
 
@@ -732,7 +732,7 @@ pub const GOBLINOID: BuiltinPool = BuiltinPool {
 
 pub const BUILTIN_POOLS: &[BuiltinPool] = &[HUMAN, ELF, DWARF, HALFLING, GNOME, ORC, TIEFLING, DRAGONBORN, GOLIATH, GOBLINOID];
 
-/// D&D-style backgrounds that colour the generated name.
+/// D&D-style backgrounds that color the generated name.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Background {
     pub name: &'static str,
@@ -785,7 +785,7 @@ pub const BACKGROUNDS: &[Background] = &[
     Background {
         name: "Sage",
         titles: &["Master", "Archivist", "Loremaster", "Magister", "Scholar"],
-        epithets: &["the Learned", "of the Grey Library", "the Wise", "the Bookish"],
+        epithets: &["the Learned", "of the Gray Library", "the Wise", "the Bookish"],
         surnames: &["Inkwell", "Quill", "Parchment", "Scrivener", "Lorewright"],
     },
     Background {

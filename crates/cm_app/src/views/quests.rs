@@ -185,7 +185,7 @@ pub fn show(ui: &mut egui::Ui, doc: &mut Doc, sh: &mut Shared, st: &mut State) {
         egui::ScrollArea::vertical().id_salt("quest_list_scroll").show(ui, |ui| {
             if list.is_empty() {
                 ui.weak(if doc.c.quests().is_empty() {
-                    "No quests yet. Create one, or tick “This is a quest” on any story card."
+                    "No quests yet. Create one, or check “This is a quest” on any story card."
                 } else {
                     "No quests match."
                 });
@@ -465,7 +465,7 @@ pub fn quest_panel(ui: &mut egui::Ui, doc: &mut Doc, sh: &mut Shared, id: Id, qu
     ui.add(
         egui::TextEdit::multiline(&mut q.reward_text)
             .id(egui::Id::new(("q_reward_text", id)))
-            .hint_text("Other rewards: favours, land, a title…")
+            .hint_text("Other rewards: favors, land, a title…")
             .desired_rows(2)
             .desired_width(f32::INFINITY),
     );

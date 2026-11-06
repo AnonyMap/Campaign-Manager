@@ -97,7 +97,7 @@ pub struct Combatant {
     pub temp_hp: i32,
     pub conditions: Vec<AppliedCondition>,
     pub hp_log: Vec<HpChange>,
-    /// Hidden from players (for a future player-facing view); also greys out in the list.
+    /// Hidden from players (for a future player-facing view); also grays out in the list.
     pub hidden: bool,
     pub notes: String,
     /// Death saving throws (player characters at 0 HP).
@@ -659,10 +659,10 @@ impl RunningEncounter {
     }
 
     /// Place `id` in the turn order just before `before` (or last when None), setting its
-    /// initiative from its new neighbours. No roll needed; works mid-combat.
+    /// initiative from its new neighbors. No roll needed; works mid-combat.
     pub fn move_before(&mut self, campaign: &Campaign, id: Id, before: Option<Id>) {
         let Some(moving) = self.get(id).cloned() else { return };
-        // The thing being placed is the combatant and its summons; neighbours are the
+        // The thing being placed is the combatant and its summons; neighbors are the
         // remaining top-level combatants (a summon stands in for its summoner).
         let top = |c: &Combatant| -> Id {
             match c.summoned_by {

@@ -121,7 +121,7 @@ pub enum Action {
     GoView(View),
     /// Select a quest in the Quests view.
     GoQuest(Id),
-    /// Centre the story board on a card (putting it on the board if needed).
+    /// Center the story board on a card (putting it on the board if needed).
     ShowOnBoard(Id),
     /// Open the loot generator for an encounter (None = the combat tracker's fight).
     LootFor(Option<Id>),
@@ -236,7 +236,7 @@ impl Doc {
         Ok(())
     }
 
-    /// Detect edits by comparing serialised snapshots (impossible to forget, unlike per-widget
+    /// Detect edits by comparing serialized snapshots (impossible to forget, unlike per-widget
     /// change flags). Only runs after input or an action, at most every 0.75 s unless forced.
     /// Also feeds undo history.
     fn track(&mut self, force: bool) {
@@ -2263,7 +2263,7 @@ impl eframe::App for App {
     }
 }
 
-/// One navigation tab. The active tab takes the content panel's colour and an accent bar,
+/// One navigation tab. The active tab takes the content panel's color and an accent bar,
 /// so it reads as "this page is open" rather than as another list item.
 fn nav_tab(ui: &mut egui::Ui, icon: &str, label: &str, count: Option<String>, active: bool, collapsed: bool, theme: &crate::themes::Theme) -> egui::Response {
     use crate::themes::{c, mix};

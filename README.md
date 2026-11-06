@@ -6,7 +6,7 @@ and Linux, works entirely offline, and keeps your campaign in an ordinary folder
 own computer.
 
 The look is deliberately plain and office-like (closer to a spreadsheet than a fantasy
-game), with light and dark themes, your own colour themes, and adjustable text size.
+game), with light and dark themes, your own color themes, and adjustable text size.
 
 *Campaign Manager is a working title.*
 
@@ -94,11 +94,11 @@ The app is deliberately lenient. It suggests a structure but never enforces one.
 
 ### Story and planning
 
-- **Story cards.** Ideas, scenes, rumours, reveals. Each can have a status, colour, plot
+- **Story cards.** Ideas, scenes, rumors, reveals. Each can have a status, color, plot
   threads, timing, tags, links, images and map pins, all optional. Writing `[[Name]]` in
   the text links to any card, NPC or wiki page. Mark a card **secret** for things the
   players don't know yet; revealing it records the session they found out.
-- **Quests.** Any card can be a quest, with a giver, objectives to tick off, rewards and
+- **Quests.** Any card can be a quest, with a giver, objectives to check off, rewards and
   status. The quest log groups them by status, and **Hand out rewards** shares coins and
   items with the party.
 - **Story board.** A table top for your cards: drag them around and draw links between them.
@@ -258,7 +258,7 @@ apart from your campaigns.
   - `crates/cm_app` is the desktop app, with one file per screen in `views/`.
 - **Testing:** 179 automated tests, of three kinds:
   - **Unit tests** for the rules and data handling.
-  - **Randomised ("property") tests.** These throw thousands of generated inputs at the
+  - **Randomized ("property") tests.** These throw thousands of generated inputs at the
     dice roller, importers, editor, calendars, combat tracker and import/export, checking
     that nothing crashes or loses data, and that Back always undoes Next.
   - **Headless app tests.** These drive the real app without a screen, including a

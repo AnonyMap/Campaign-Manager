@@ -1,4 +1,4 @@
-//! Dice expression engine modelled on the 5etools dice roller.
+//! Dice expression engine modeled on the 5etools dice roller.
 //!
 //! Supported syntax (case-insensitive, whitespace ignored):
 //!
@@ -278,7 +278,7 @@ impl fmt::Display for Tok {
     }
 }
 
-/// Normalise input in the same spirit as 5etools.
+/// Normalize input in the same spirit as 5etools.
 fn normalise(input: &str) -> String {
     let mut s = format!(" {} ", input.trim().to_lowercase());
     for (from, to) in [
@@ -721,7 +721,7 @@ enum Mode {
     Max,
 }
 
-/// Kind of a breakdown segment, so a UI can colour dropped / exploded dice etc.
+/// Kind of a breakdown segment, so a UI can color dropped / exploded dice etc.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SegKind {
     Text,

@@ -135,7 +135,7 @@ pub fn sample_campaign() -> Campaign {
     let wolf = bestiary::srd_statblocks().into_iter().find(|s| s.name() == "Wolf");
     let mut grey = Npc::default();
     grey.kind = NpcKind::Monster;
-    grey.core.name = "Old Grey".into();
+    grey.core.name = "Old Gray".into();
     grey.role = "The bandit captain's wolf".into();
     grey.core.notes = "Scarred muzzle, one blind eye. Fights to the death if the captain falls.".into();
     grey.statblock = wolf.as_ref().map(|w| w.id);

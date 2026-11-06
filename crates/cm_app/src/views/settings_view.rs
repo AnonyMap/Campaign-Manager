@@ -189,7 +189,7 @@ fn calendar(ui: &mut egui::Ui, doc: &mut Doc, st: &mut State) {
             if ui.small_button("weekly").clicked() {
                 sched.interval_days = 7;
             }
-            if ui.small_button("fortnightly").clicked() {
+            if ui.small_button("every 2 weeks").clicked() {
                 sched.interval_days = 14;
             }
             if ui.small_button("4-weekly").clicked() {
