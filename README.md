@@ -1,42 +1,208 @@
 # Campaign Manager
 
-A desktop campaign notebook for Dungeon Masters, written in Rust, for Linux, macOS and Windows. Plain, office-style
-interface (think Microsoft Project, not a fantasy skin) with 15 built-in light and dark
-themes, your own saved themes, and adjustable fonts.
+A desktop notebook for Dungeon Masters running D&D 5e (2024 rules). Plan the story, keep
+track of the world, and run sessions and combat from one place. It runs on Windows, macOS
+and Linux, works entirely offline, and keeps your campaign in an ordinary folder on your
+own computer.
 
-*Working title — the name may change.*
+The look is deliberately plain and office-like (closer to a spreadsheet than a fantasy
+game), with light and dark themes, your own colour themes, and adjustable text size.
 
-## What it does (v0.4.5)
+*Campaign Manager is a working title.*
 
-| Area | What you can do |
+---
+
+## Install
+
+Download the latest version from the
+**[Releases page](https://github.com/AnonyMap/Campaign-Manager/releases)**.
+
+| System | Download | First run |
+|---|---|---|
+| **Windows** (10/11, 64-bit) | `…-windows-x64.zip` | Unzip anywhere and run `Campaign Manager.exe`. Nothing is installed. The app isn't code-signed, so Windows SmartScreen may warn you the first time: click **More info → Run anyway**. |
+| **macOS** (Intel and Apple Silicon) | `…-macos-universal.dmg` | Open the .dmg and drag the app to Applications. The app isn't notarized by Apple, so macOS blocks it the first time. Go to **System Settings → Privacy & Security** and click **Open Anyway** (on older macOS: right-click the app → **Open**). |
+| **Linux** (x86-64) | `….AppImage` | Make it executable (`chmod +x Campaign_Manager-*.AppImage`) and run it. It needs no extra libraries on a normal desktop. If your system lacks FUSE, run it with `--appimage-extract-and-run`. |
+
+To build it yourself instead, see [Building from source](#building-from-source).
+
+---
+
+## What it does
+
+Campaign Manager brings together the things a DM usually keeps in separate notebooks, apps
+and browser tabs:
+
+- **The story:** plot ideas, quests, secrets and plot threads, planned session by session.
+- **The world:** places, shops, NPCs, factions, maps, and an Obsidian wiki if you use one.
+- **The rules you need at the table:** a bestiary with every SRD 5.2 monster, an item
+  library with every SRD 5.2 item, a loot generator and a dice roller.
+- **The game itself:** a "Run session" screen to keep open while you play, and a combat
+  tracker that handles initiative, turns, HP, conditions and death saves.
+
+---
+
+## How it works
+
+### The idea
+
+Everything in a campaign is a **record**: a story card, a session, an NPC, a place, an item,
+a stat block, an encounter. Records **link** to each other. A card can mention an NPC, an
+NPC can live in a place, a place can be on a map, a session can plan which cards and
+encounters it will use. Each record shows everything that links to it, so you can always
+follow a thread from one thing to the next.
+
+### A typical flow
+
+This is one way to use it. You don't have to (see below).
+
+1. **Jot ideas as story cards.** A card can be a single line: *"What if the miller faked
+   his own disappearance?"* New cards wait in the ideas pile.
+2. **Shape the story.** Give cards a plot thread, link them to the NPCs and places involved,
+   arrange them on the story board, mark some as **quests** or **secrets**.
+3. **Plan a session.** Drag cards into a session's running order and add the encounters
+   you expect to run.
+4. **Run it at the table.** The **Run session** screen shows tonight's scenes in order, the
+   encounters with Run buttons, the secrets you might reveal, the people involved and the
+   party's key numbers. Fights go to the **combat tracker**.
+5. **End the session.** The app marks it played, drafts a recap from your notes, the scenes
+   you played and the secrets you revealed, and can move unplayed scenes to next time.
+
+Meanwhile the world fills in around the story: NPCs with stat blocks, towns with shops and
+generated wares, factions, maps with your cards pinned on them.
+
+### You don't have to use it that way
+
+The app is deliberately lenient. It suggests a structure but never enforces one.
+
+- **Almost every field is optional.** An NPC can be just a name. A card can be one line
+  with no title, thread or date.
+- **Use only the parts you want.** Plenty of DMs will only want the combat tracker, or the
+  bestiary and dice roller, or a place to keep notes. The rest stays out of the way.
+- **There's no required order.** Run a combat with creatures you add on the spot, start a
+  session with nothing planned, or put a card in a session without giving it a thread.
+- **Write the way you like.** Notes are formatted text you can type into like a word
+  processor. Underneath it's plain Markdown, and you can switch to editing that directly.
+- **Imports forgive mess.** Pasted stat blocks and items can have chat text around them,
+  odd formatting or missing fields. You get a preview with warnings before anything is
+  added.
+- **Mistakes are cheap.** Almost every change can be undone (Ctrl/⌘ Z), the app autosaves,
+  and the previous save is always kept as a backup.
+
+---
+
+## Features
+
+### Story and planning
+
+- **Story cards.** Ideas, scenes, rumours, reveals. Each can have a status, colour, plot
+  threads, timing, tags, links, images and map pins, all optional. Writing `[[Name]]` in
+  the text links to any card, NPC or wiki page. Mark a card **secret** for things the
+  players don't know yet; revealing it records the session they found out.
+- **Quests.** Any card can be a quest, with a giver, objectives to tick off, rewards and
+  status. The quest log groups them by status, and **Hand out rewards** shares coins and
+  items with the party.
+- **Story board.** A table top for your cards: drag them around and draw links between them.
+- **Plot line.** A grid of plot threads × sessions (or months). Drag cards to reschedule them.
+- **Sessions.** A planner for each session: notes, running order, encounters, recap.
+- **Timing and calendars.** Date cards by session number, by real date or by an in-world
+  date on your own calendar. A play schedule (say, every other Friday) converts between
+  session numbers and real dates.
+
+### The world
+
+- **NPCs and player characters.** Stats, portraits, notes, custom rolls, inventory and coins.
+  NPCs can use a **stat block** from the bestiary. Their own numbers override it, and blank
+  ones are filled from it. An NPC can have **several stat blocks** for different forms: a
+  druid's wild shape, or a villain's second phase. A **name generator** covers many species
+  and backgrounds, and you can add your own name lists.
+- **Places.** Towns, inns, temples, dungeons, nested inside each other (a shop *in* a town).
+  Shops get **generated wares** by type and quality, with prices you can edit and a **Sell
+  to…** button that takes the coins from a character's purse.
+- **Factions.** Goals, attitude to the party, members, and where they're present.
+- **Maps.** Any image, of any size. Pin cards to it, pan and zoom.
+- **Campaign wiki.** Point the app at an Obsidian vault to browse, search, edit and link
+  notes. You can also export cards, NPCs, places and more as notes. Text you add below the
+  marker line in an exported note is kept when you export again.
+
+### Rules and reference
+
+- **Bestiary.** All 331 SRD 5.2 monsters plus your own, shown like a printed stat block,
+  with a roll button for every attack, save and check. **Import** stat blocks from any
+  book: give an AI chatbot the page together with the instructions the app provides
+  (`docs/statblock-import-spec.md`), paste its reply back, and check the preview. Imports
+  go into collections, so a whole book stays separate from your homebrew.
+- **Items.** All 739 SRD 5.2 items plus your own, with rolls and bonuses (+1 weapons, AC)
+  worked out automatically. Imports work the same way as for stat blocks
+  (`docs/item-import-spec.md`).
+- **Inventory.** Coins and items for every character, with equipped and attuned items, and
+  item rolls added to the character's custom rolls.
+- **Loot generator.** Treasure for an encounter, a challenge rating or a target value, made
+  from built-in coin, gem and art tables plus magic items. No AI is involved. Reroll lines,
+  then hand the loot out, save it as a card or copy it as text.
+- **Dice roller.** A side panel that's always available. It uses 5etools-style notation
+  (advantage, keep/drop, rerolls, exploding dice, pools), keeps a history and macros, and
+  can save any roll to a character.
+
+### Combat
+
+- **Encounter builder.** Plan fights with PCs, NPCs, monsters ("Goblin ×4") and allies,
+  with a difficulty estimate from the 2024 DMG XP budgets.
+- **Combat tracker.**
+  - **Setup:** add creatures several at a time, as enemies or allies. Roll initiative
+    separately or as a group, type it in, or drag anyone into place.
+  - **Turns:** a turn bar tracks the round, whose turn it is and who's next. **Next** and
+    **Back** step through the order (Back exactly undoes Next), and in-game time is counted
+    for you.
+  - **HP:** a calculator (`2d6+3`, or `+5` to heal), group damage with full, half, double
+    or none per target, temporary HP, and undo for every change.
+  - **Conditions:** the 15 conditions of the 2024 rules, with their effects shown on hover,
+    plus timers and concentration reminders.
+  - **Death saves:** handled following the 2024 rules.
+  - **Summons and forms:** summons act right after their summoner, and NPCs can switch form
+    mid-fight.
+  - **Saving:** a fight in progress is saved with the campaign.
+
+### Everywhere
+
+- **Go to…** (Ctrl/⌘ P): jump to any card, NPC, place, item or screen by typing part of
+  its name. **Search** (Ctrl/⌘ F) looks through the whole campaign and wiki.
+- **Back and forward** (Ctrl/⌘ [ and ]): move between the screens and records you opened,
+  like in a browser.
+- **Formatted writing.** Bold looks bold, lists continue when you press Enter, and checkboxes
+  can be clicked. Underneath it's Markdown.
+- **Import and export.** Start a new campaign from an existing one ("same world, new
+  story"). You can also share all or part of a campaign as a `.cmpack` file, or import
+  parts of another campaign.
+- **Keyboard shortcuts** for nearly everything (below). On a Mac they use ⌘.
+- **Autosave and undo**, with a backup of the previous save.
+
+<details>
+<summary><b>Keyboard shortcuts</b></summary>
+
+On a Mac, use **⌘ Command** wherever this says Ctrl. The app shows the right key in its
+menus, and **Ctrl/⌘ /** lists every shortcut.
+
+| Keys | Does |
 |---|---|
-| **Run session** | The screen to keep open at the table. Picks the next planned session and shows the plan, the scenes in running order (tick them off, mark the one in play), encounters with Run buttons, the secrets tied to today's scenes with Reveal buttons, the people involved, the party's AC/HP/passive Perception, a quick-idea box and live notes. **End session** marks it played, drafts the recap from your notes, the scenes you played and the secrets you revealed, and can move unplayed cards to the next session. |
-| **Story cards** | Jot plot ideas. Nothing is required — a card can be one line of Markdown. Optional title, status, colour, plot threads, timing, map pins, session plans, tags, and links to NPCs, PCs, factions, encounters, other cards, wiki pages, URLs and images. `[[Name]]` in the text links to any card/NPC/wiki page. Shows "Referenced by" backlinks. Mark a card **secret** (🔒) for things the players don't know yet; reveal it later and it records which session they found out in. Filter by secret / not yet revealed. |
-| **Timing** | Calendars start weeks on Sunday and show US-style dates by default (Settings → Appearance → Dates switches to Monday / international / ISO). Per card: unscheduled, real-world date, in-world (custom calendar) date, or session number. A play schedule (first date + interval + skipped dates) converts between session numbers and real dates. |
-| **Story board** | A plain table top for story cards: put cards on it (one at a time or all at once), drag them around, and drag from a card's ● handle onto another card to link them. Lines show links (two-way ones once, with arrows both ways); right-click a line to remove it. Select a card to list everything it links to and everything that links to it, and click through. Zoom, Fit, Tidy (rows by plot thread), dim finished cards. |
-| **Quests** | Tick “This is a quest” on any story card (or create one in Quests). Track status (available, active, completed, failed, abandoned), who gave it (an NPC, faction, place or PC), objectives to tick off, rewards (coins, items, XP, anything else) and the sessions it was taken and finished in. The quest log groups quests by status and filters by giver; **Hand out rewards** splits the coins between the party and gives each item to someone. Active quests and their objectives show on the Run session screen; NPC, faction and place pages list the quests they've given. |
-| **Ideas pile** | Cards stay in the pile until you assign them (or untick it). Placing a card on a map doesn't remove it from the pile — it's "and/or". |
-| **Plot line** | Grid of plot threads × sessions (or real/in-world months). Drag cards between cells to change thread or target session. "+ card" in any cell. |
-| **Places** | Towns, inns, shops, temples, dungeons — any kind you type. Places nest (a shop *in* a town) and list their NPCs, factions and related places. 🎲 **Name** suggests names for the kind of place (inns, shops by trade, temples, dungeons, keeps, guilds, wilds, towns); add a name pool in Settings named after a kind (e.g. “Inn”) to mix in your own. Any place can become a **story card** for the plot line and story board. Shops get **generated wares** by theme (general store, blacksmith, alchemist/potions, magic, scribe, fletcher, jeweler, temple, tavern menu) and quality (poor / average / fine), with prices you can edit and a **Sell to…** button that takes the price from the character's purse. |
-| **Maps** | Upload a map image (browse, paste a path, or drag the file onto the window). Pin cards, drag pins, scroll-zoom, pan. Any size works: images bigger than your graphics card can show (or over 8192 pixels on a side) are shrunk for display; the file itself isn't changed, and pins stay put. |
-| **Sessions** | Session planner: narrative (Markdown), running order of cards, encounters (with Run buttons), recap, links. |
-| **Plot threads** | Storylines with status (open / dormant / resolved / abandoned) and progress. |
-| **Player characters** | Player name, character name, portrait, class/level, AC, HP, initiative mod, ability scores, passive Perception, custom rolls, character-sheet images, Markdown notes, extra fields. |
-| **NPCs & monsters** | Same as PCs plus kind, factions, role, location, status, stat-block images and a **name generator** (10 species pools, 10 backgrounds, invented names, your own pools; 12,500+ combinations). Assign a **stat block** from the Bestiary: blank AC/HP/initiative/CR fall back to it, filled-in values override it. An NPC can have **several stat blocks**: a druid's wild shape, a villain's second phase, a younger self. The main one fills in the NPC's blanks; the others use their own numbers. |
-| **Bestiary** | A pool of stat blocks, separate from NPCs (many NPCs can share one). Rendered like a printed stat block with roll buttons for every attack, damage roll, ability check and initiative. Edit everything, including structured attacks/saves/damage. Includes all **331 SRD 5.2 monsters** to browse and copy in. **Import** stat blocks from any book: give an AI the PDF plus the built-in instructions (Import → *Copy AI instructions*, also in `docs/statblock-import-spec.md`), paste its reply back, check the preview and warnings, import. Imports go into their own **collection** (e.g. "Essential NPCs"), so a whole book stays apart from your homebrew; filter by collection, rename it, export just that collection, or delete it. **Select** mode ticks many stat blocks at once (shift-click for a range) to move them to another collection or delete them. Export your bestiary to share it. **Give to an NPC…** adds a stat block to an existing NPC (as another form if they already have one). |
-| **Factions** | Description, goals, attitude to the party, emblem, member NPCs, the places they're present at and the quests they've given. |
-| **Items** | Your item library plus all **739 SRD 5.2 items** (equipment and magic items) to browse and copy in. Each item has type, rarity, price, weight, attunement, damage/AC, description, **rolls** (found automatically: weapon damage with its bonus, healing, extra damage) and **bonuses** (+1 to attack and damage, +2 AC…). **Give to…** puts an item in a character's inventory, optionally adding its rolls to their custom rolls; **Add rolls to…** adds just the rolls. **Import** items from any book the same way as stat blocks (AI instructions in `docs/item-import-spec.md`), into their own collection; export, bulk select and delete. |
-| **Inventory** | PCs and NPCs carry coins (pp/gp/ep/sp/cp) and items with quantity, equipped and attuned (max 3). Bonuses from equipped items are summed up; 🎲+ adds an item's rolls to the character. |
-| **Loot generator** | Procedural treasure, no AI: **for an encounter** (each enemy's pocket change by CR, or one treasure hoard by the toughest enemy — from a premade encounter or the fight in the combat tracker), **by challenge** rating, or **by value** (“about 500 gp”, with or without magic items up to a rarity, gems and art). Coins, gems and art objects from built-in tables, magic items from the SRD list and your own. Reroll or remove any line, add items or coins, then hand it out to the party, save it as a story card, add it to the encounter's notes, or copy it as text. **💰 Loot** buttons in Encounters and the Combat tracker open it for that fight. |
-| **Encounter builder** | Premade encounters from PCs, NPCs, stat blocks (with counts — "Goblin Warrior ×4") and one-off creatures; mark entries as allies (left out of the difficulty) and choose whether copies roll initiative together. An NPC with several stat blocks can be set to fight **as** any of them. Difficulty estimate using the 2024 DMG XP budgets. |
-| **Combat tracker** | Every row shows the creature's **token** (its portrait, or its stat block's; initials otherwise) with a coloured border: blue for PCs, green for allies, red for enemies. **Add creatures…** adds NPCs, stat blocks/SRD monsters or one-offs several at a time, as enemies or **allies**, with initiative rolled (separately or **together** — one roll for the group, shown by a coloured bar), typed in, or left blank. **Drag** the dotted handle to put anyone anywhere in the turn order, with or without a roll: the app sets their initiative from the new neighbours. **Summons** (right-click a name, or "Add summon…") sit indented under their summoner and act right after them; they stay if the summoner drops out. Auto-roll NPC initiative (uses the assigned initiative modifier, else DEX mod, and says which it used), auto-sorted turn order. **Turns and rounds**: after ▶ Start combat, a turn bar shows the round, “turn 3 of 8”, game time elapsed, who's acting now (with their conditions, or a death-save reminder) and who's up next; **Next ▶** / **◀ Back** (or the N and B keys) move through the order, passing over downed monsters, highlighting and scrolling to the current row. Going back past the top of a round returns to the previous round and puts back any condition timers the new round had counted down. HP with a calculator (type an amount like `5+6` or `2d6`, see a live preview, then click −Dmg or +Heal; Enter = damage, a leading `+` heals), "Bloodied" (≤ 50 %) and "Down" indicators, undo for each HP change, temp HP, the 15 conditions of the 2024 rules with their effects on hover, custom statuses, concentration-save reminders. **Group rolls**: tick several combatants, type one amount (e.g. `8d6`), and each takes full, half, double or none (click their chip to cycle) — one roll, one undo. **Death saves** for PCs at 0 HP: click the pips or roll (10+ succeeds, 1 = two failures, 20 = back up with 1 HP); damage while down adds a failure (and a stable character who is hit starts dying again), healing clears them; a dead character isn't brought back by healing (set their HP to revive them). Exhaustion lowers initiative rolls by 2 per level. NPCs with several stat blocks can be added **as** any form, and a **Form** switch changes them mid-fight (AC and max HP follow the new form; current HP carries over, capped at the new maximum, and an unhurt creature starts the new form at full HP). Selecting a combatant shows their custom rolls, stats, the full stat block with roll buttons, sheet images and notes. Edits to max HP, AC, initiative modifier and custom rolls are saved to the PC/NPC record. Combat in progress is saved with the campaign. |
-| **Dice roller** | Always-available side panel (Ctrl+D), 5etools-style syntax (below), history with reroll, colour-coded dice, macros, and **save any roll to a character** — either with `@Name` in the roll or the "Save to…" button on any history entry. |
-| **Campaign wiki** | Point at an Obsidian vault: folder tree, tag list, full-text search (`tag:x`, `path:y`), rendered notes with working `[[links]]` and aliases, backlinks, edit & save (warns before throwing away unsaved edits, and before overwriting a note changed in Obsidian meanwhile), create notes, open in Obsidian. Export cards (with quest details), NPCs and PCs (with inventory), factions, encounters and places (with shop stock) as notes (re-exporting updates the same note). A vault inside the campaign folder is stored as a relative path, so the campaign can move. |
-| **Import / export** | **File › Import / export** (also on the Overview): **New campaign from this one** — same world, new story; **Export** all or part of a campaign to a `.cmpack` file; **Import** all or part of a package, or straight from another campaign's folder, into this campaign; **New campaign from a file**. Pick parts with checkboxes (story & quests, sessions, encounters, PCs, NPCs, factions, places & shops, items, bestiary, maps, calendar/name pools/conditions/macros) or a preset: *Everything*, *Campaign setting* (the world without the story, encounters or PCs), *Reference library* (items, bestiary, rules), *The party*. Images come along. Things that came from the same campaign are recognised: keep yours, replace them, or keep both. Links to things you leave out are dropped. An import can be undone. Dropping a `.cmpack` file on the window opens the import. |
-| **Writing** | Every notes / description field has a **formatted** editor: bold looks bold, headings look like headings, lists and checklists line up, `[[links]]` show as links — with a toolbar (bold, italic, strikethrough, headings, bullet / numbered / check lists, quote, link, code) and Ctrl+B / Ctrl+I. Underneath it's still Markdown: the marks show on the line you're editing, and ticking **Markdown** on the toolbar (or Settings › Appearance › Writing) switches to a plain Markdown text box. Enter starts a new line exactly where you expect it (and Preview keeps it); in a list, Enter starts the next bullet, number or checkbox, Enter on an empty item ends the list, and Tab / Shift+Tab nest and un-nest items. Click a checkbox to tick it. **Preview** shows the full rendering with images and tables. |
-| **Everywhere** | Global search (Ctrl+F) across cards, quests, people, places, items and stat blocks; undo/redo of any change (Ctrl+Z / Ctrl+Shift+Z or Ctrl+Y when not typing; bursts of typing are one step, dice rolls aren't undone); autosave that retries if the disk or a sync app blocks it, and asks before quitting with unsaved changes; drag-and-drop images. |
+| Ctrl P | Go to… anything by name |
+| Ctrl F | Search |
+| Ctrl [ / Ctrl ] (or mouse back/forward) | Back / forward |
+| Ctrl 1 … 9 | Overview, Run session, Story cards, Story board, NPCs, Places, Encounters, Combat, Wiki |
+| Ctrl N / Ctrl Shift N | New story card / new NPC |
+| Ctrl S, Ctrl Z, Ctrl Shift Z | Save, undo, redo |
+| Ctrl D | Dice roller |
+| Ctrl = / Ctrl − / Ctrl 0 | Larger / smaller / normal text |
+| ↑ ↓ Home End | Move through the list on screen |
+| Esc | Close the window on top |
+| **While writing:** Ctrl B / I / E / K, Ctrl Shift X | Bold, italic, code, [[link]], strikethrough |
+| **While writing:** Ctrl Shift 7 / 8 / 9 | Numbered, bulleted, check list |
+| **While writing:** Ctrl Alt 1 / 2 / 3 / 0 | Heading 1–3, normal text (Alt is ⌥ Option on a Mac) |
+| **In combat:** N or →, B or ←, ↑ ↓, R, A | Next turn, back, select, roll NPC initiative, add creatures |
 
-### Dice syntax
+</details>
+
+<details>
+<summary><b>Dice notation</b></summary>
 
 ```
 Basic:        1d20+5   d20   2d6+1d4+3   d%   (1+1)d6   2d3d4 (chained)
@@ -54,142 +220,127 @@ Repeat:       /iterroll 1d20+5 10 [target]
 Other:        /clear  /help   ↑/↓ recalls earlier input
 ```
 
-Semantics follow 5etools: rerolls happen once, explosions chain (capped at 999 extra dice),
-`cs` turns the total into a success count, `ms` into a margin.
+Rerolls happen once, explosions chain (up to 999 extra dice), `cs` counts successes and
+`ms` gives the margin, as in 5etools.
 
-## Keyboard shortcuts
+</details>
 
-On a Mac every shortcut uses **⌘ Command** where Windows and Linux use **Ctrl**; menus and
-tooltips show the right one. **Ctrl/⌘ + /** lists them all in the app.
-
-| | |
-|---|---|
-| **Ctrl/⌘ P** | Go to… any card, NPC, place, item, session or screen by name (recent ones when empty) |
-| **Ctrl/⌘ F** | Search the campaign and wiki |
-| **Ctrl/⌘ [ / ]**, mouse back/forward | Back / forward through the screens and records you opened |
-| **Ctrl/⌘ 1 … 9** | Overview, Run session, Story cards, Story board, NPCs, Places, Encounters, Combat, Wiki |
-| **Ctrl/⌘ N**, **Ctrl/⌘ ⇧ N** | New story card, new NPC |
-| **Ctrl/⌘ S**, **Z**, **⇧Z / Y** | Save, undo, redo |
-| **Ctrl/⌘ D**, **,**, **O** | Dice roller, Settings, open a campaign |
-| **Ctrl/⌘ = / − / 0** | Larger / smaller / normal text |
-| **↑ ↓ Home End** | Move through the list on screen (when not typing) |
-| **Esc** | Close the window on top |
-| *Writing:* **Ctrl/⌘ B / I / E / K**, **⇧X** | Bold, italic, code, [[link]], strikethrough |
-| *Writing:* **Ctrl/⌘ ⇧ 7 / 8 / 9**, **⌥ 1 / 2 / 3 / 0** | Numbered / bullet / check list; heading 1–3 / normal text |
-| *Combat:* **N / →**, **B / ←**, **↑ ↓**, **R**, **A** | Next turn (or start), back, select, roll NPC initiative, add creatures |
+---
 
 ## Your data
 
-A campaign is a **folder**:
+A campaign is a folder you can copy, back up, sync with Dropbox or OneDrive, or put in Git:
 
 ```
 My Campaign/
-  campaign.json       everything except images — pretty-printed UTF-8 JSON
+  campaign.json       everything except images, as readable JSON
   campaign.json.bak   the previous save
-  assets/             images you added (maps, portraits, sheets)
-  wiki/               (optional) an Obsidian vault, if you create one here
+  assets/             images you added (maps, portraits, character sheets)
 ```
 
-A `.cmpack` export is a zip file holding a `campaign.json` with the parts you chose and the
-`assets/` images they use — you can open it with any unzip tool.
+There's no account, no server and no tracking. The app never connects to the internet; web
+links you add open in your browser. Files from older versions keep opening in newer ones.
+App settings (theme, fonts, recent campaigns) are kept in your system's settings folder,
+apart from your campaigns.
 
-Paths inside the JSON are relative with forward slashes, so the folder works unchanged on
-Linux, macOS and Windows — copy it, sync it with Dropbox/OneDrive, or put it in Git. Files
-from older versions keep loading as fields are added. Appearance settings live in your OS
-config folder, separate from campaigns.
+---
 
-## Building
+## Development
 
-Requires Rust 1.88+.
+### How it's built
+
+- **Language and UI:** written in [Rust](https://www.rust-lang.org/) with the
+  [egui](https://github.com/emilk/egui) interface library. It compiles to a single native
+  program per platform with no runtime to install.
+- **Two parts:**
+  - `crates/cm_core` holds all the logic (campaign data, dice, combat rules, calendars,
+    import/export, loot, the wiki) and doesn't depend on the interface.
+  - `crates/cm_app` is the desktop app, with one file per screen in `views/`.
+- **Testing:** 179 automated tests, of three kinds:
+  - **Unit tests** for the rules and data handling.
+  - **Randomised ("property") tests.** These throw thousands of generated inputs at the
+    dice roller, importers, editor, calendars, combat tracker and import/export, checking
+    that nothing crashes or loses data, and that Back always undoes Next.
+  - **Headless app tests.** These drive the real app without a screen, including a
+    "monkey" that clicks, types and presses shortcuts at random on every screen.
+- **Bug hunting:** besides the tests, there have been several rounds of independent code
+  review, each followed by fixes and a regression test for every bug found.
+- **Continuous builds:** every change is built and tested on Linux, macOS and Windows by
+  GitHub Actions (`.github/workflows/release.yml`). Tagging a version publishes the
+  downloads on the Releases page.
+- **Open data:** the SRD monsters and items are bundled as JSON in `crates/cm_core/data`.
+  The scripts in `tools/` regenerate them from [Open5e](https://open5e.com).
+
+### Building from source
+
+You need Rust 1.88 or newer ([rustup.rs](https://rustup.rs)).
 
 ```sh
-cargo test --workspace                     # 179 tests (some randomised, see below)
-cargo run --release -p campaign-manager    # run the app
-cargo run -p cm_core --example make_sample -- "/tmp/Sample"   # write the sample campaign
+cargo run --release -p campaign-manager    # build and run the app
+cargo test --workspace                     # run the tests
 ```
 
-The tests include randomised ("property") tests that throw thousands of generated inputs at
-the dice roller, importers, editor, calendar, combat tracker and import/export, and a
-headless "monkey" that drives the whole app — clicking buttons and typing awkward text on
-every screen. Locally they try new random inputs on every run; CI uses a fixed seed. Longer
-hunts: `PROPTEST_CASES=20000 cargo test -p cm_core` or
-`MONKEY_SEED=3 MONKEY_STEPS=5000 cargo test -p campaign-manager monkey`. A frame-time check
-on a very large campaign: `cargo test --release -p campaign-manager big_campaign -- --ignored --nocapture`.
+On Linux, nothing beyond a normal desktop (X11 or Wayland, OpenGL) is needed. To build the
+release packages, use the scripts in `packaging/`:
 
-Linux builds need no system libraries beyond a normal desktop (X11 or Wayland, OpenGL). The
-file dialog uses the XDG desktop portal; if your desktop has none, use the "paste a path"
-fields or drag-and-drop.
+- `build-appimage.sh` for Linux.
+- `build-macos.sh` on a Mac, for a universal .dmg.
+- `build-windows.ps1` on Windows, or `build-windows-cross.sh` from Linux.
+- `make-source-tar.sh` for a source archive.
 
-### Release packages
+Longer test runs:
 
-| Package | How |
-|---|---|
-| Linux AppImage | `packaging/build-appimage.sh` (uses cargo-zigbuild to target glibc 2.28 if installed) |
-| macOS .dmg | `packaging/build-macos.sh` on a Mac (universal Intel + Apple Silicon, ad-hoc signed) |
-| Windows .zip (portable) | `packaging\build-windows.ps1` on a Windows PC (Rust + Visual Studio C++ Build Tools), or `packaging/build-windows-cross.sh` from Linux (`rustup target add x86_64-pc-windows-gnu` + mingw-w64) |
-| Source tarball | `packaging/make-source-tar.sh` |
-
-`.github/workflows/release.yml` builds the AppImage, the .dmg, the Windows .zip and the source
-tarball on GitHub's Linux, macOS and Windows runners;
-pushing a `v*` tag publishes them as a release.
-
-The macOS build is ad-hoc signed, not notarized: the first time, right-click the app → Open.
-The Windows build is a portable folder (unzip, run `Campaign Manager.exe`); it isn't code-signed,
-so SmartScreen may warn the first time — click "More info" → "Run anyway".
-
-## Layout
-
-```
-crates/cm_core   UI-independent library: model, storage, dice, encounters, conditions,
-                 names, calendars, bestiary/import, items/import, loot & shops, places,
-                 Obsidian vault, search (all unit tested)
-crates/cm_core/data   bundled SRD 5.2 monsters and items (import format)
-docs/            stat block and item import specs for AI conversion + JSON Schema
-crates/cm_app    egui desktop app (views/ has one file per section)
-packaging/       build scripts, .desktop file
+```sh
+PROPTEST_CASES=20000 cargo test -p cm_core                            # more random inputs
+MONKEY_SEED=3 MONKEY_STEPS=5000 cargo test -p campaign-manager monkey  # a longer monkey run
+cargo test --release -p campaign-manager big_campaign -- --ignored --nocapture   # speed check
 ```
 
-### Stat block import format
+---
 
-`docs/statblock-import-spec.md` is written for an AI model (and people): rules, field reference,
-a worked example and a checklist. `docs/statblock.schema.json` is the matching JSON Schema. The
-importer is lenient (it accepts chat text around the JSON, code fences, `"hp": "27 (5d8 + 5)"`,
-trailing commas…) and lists anything it couldn't read before you import.
-`tools/convert_open5e_srd.py` regenerates the bundled SRD list from Open5e's data.
+## Built with AI
 
-### Item import format
+**This app was coded with AI.** The code was written by Claude, an AI model made by
+Anthropic. The project's author directed the work: what to build, how it should behave,
+play-testing, and feedback on every version. The code reviews mentioned above were also
+done by AI, alongside the automated tests.
 
-`docs/item-import-spec.md` does the same for items (weapons, armour, potions, wondrous items,
-gear…): name, type, rarity, cost, weight, attunement, damage or AC, description, and optional
-`rolls` and `modifiers`. Missing rolls and bonuses are worked out from the text when imported.
-`tools/convert_open5e_items.py` regenerates the bundled SRD item list.
+The code is open and auditable. Every line of it is in this repository under the MIT
+license, along with the tests and the build pipeline that produces the downloads. Anyone
+can read it, check it, build it themselves, change it or reuse it. If you find a bug or
+something that looks wrong, please open an issue.
+
+---
 
 ## Troubleshooting
 
-- If the app ever crashes, details are written to `crash.log` in the settings folder
-  (`~/.config/campaignmanager/` on Linux, `~/Library/Application Support/org.CampaignManager.Campaign-Manager/` on macOS, `%APPDATA%\CampaignManager\Campaign Manager\config\` on Windows) — please send it in.
-- File dialogs use your desktop's XDG portal, falling back to `zenity`; if neither is available
-  every picker also accepts a pasted path or a dragged file.
+- **If the app crashes,** details are written to `crash.log` in the settings folder. Please
+  include it when you report the problem. The settings folder is:
+  - Linux: `~/.config/campaignmanager/`
+  - macOS: `~/Library/Application Support/org.CampaignManager.Campaign-Manager/`
+  - Windows: `%APPDATA%\CampaignManager\Campaign Manager\config\`
+- **If a file picker doesn't open** (some Linux desktops lack one), every picker also
+  accepts a pasted path or a file dragged onto the window.
 
-## Known limitations / next iterations
+## Known limitations
 
-- No multi-window: the dice roller is a side panel, not a separate window.
-- Wiki editing is a plain Markdown text box (no live preview while editing).
-- Maps hold card pins only (no free-form markers or fog of war yet).
-- Not yet: a player-facing initiative window, two-way Obsidian sync.
-- Loot and shop generation draw from the SRD list and your own items; there's no weighting by
-  setting or region yet.
+- There's no player-facing initiative display yet, and no two-way sync with Obsidian.
+- Maps hold card pins only (no free markers or fog of war).
+- The dice roller is a side panel, not a separate window.
+- Loot and shop stock aren't weighted by region or setting.
 
-## Credits
+---
 
-Condition summaries paraphrase the 2024 rules glossary, and the bundled monsters come from the
-System Reference Document 5.2. This work includes material from the System Reference Document 5.2
-("SRD 5.2") by Wizards of the Coast LLC, available at https://www.dndbeyond.com/srd. The SRD 5.2 is
-licensed under the Creative Commons Attribution 4.0 International License, available at
-https://creativecommons.org/licenses/by/4.0/legalcode. Monster and item data structured by the
-[Open5e](https://open5e.com) project.
+## Credits and license
 
-The bold face used in formatted text is Ubuntu Bold, under the Ubuntu Font Licence
-(`crates/cm_app/assets/UFL.txt`), like the Ubuntu Light font built into egui.
+This work includes material from the System Reference Document 5.2 ("SRD 5.2") by Wizards
+of the Coast LLC, available at https://www.dndbeyond.com/srd. The SRD 5.2 is licensed under
+the Creative Commons Attribution 4.0 International License, available at
+https://creativecommons.org/licenses/by/4.0/legalcode. The monster and item data was
+structured by the [Open5e](https://open5e.com) project. Condition summaries paraphrase the
+2024 rules glossary.
 
-License: MIT.
+The bold font in formatted text is Ubuntu Bold, under the Ubuntu Font Licence
+(`crates/cm_app/assets/UFL.txt`).
+
+Campaign Manager is released under the [MIT License](LICENSE).
