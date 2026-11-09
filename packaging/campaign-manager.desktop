@@ -8,3 +8,5 @@ Icon=campaign-manager
 Terminal=false
 Categories=Game;RolePlaying;Utility;
 Keywords=dnd;d&d;rpg;dungeon master;dice;initiative;obsidian;
+StartupWMClass=campaign-manager
+X-AppImage-Version=dev

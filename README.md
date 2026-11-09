@@ -23,6 +23,14 @@ Download the latest version from the
 | **macOS** (Intel and Apple Silicon) | `…-macos-universal.dmg` | Open the .dmg and drag the app to Applications. The app isn't notarized by Apple, so macOS blocks it the first time. Go to **System Settings → Privacy & Security** and click **Open Anyway** (on older macOS: right-click the app → **Open**). |
 | **Linux** (x86-64) | `….AppImage` | Make it executable (`chmod +x Campaign_Manager-*.AppImage`) and run it. It needs no extra libraries on a normal desktop. If your system lacks FUSE, run it with `--appimage-extract-and-run`. |
 
+**On Linux, [Gear Lever](https://flathub.org/apps/it.mijorus.gearlever) is the easiest way
+to install and update it.** Open the downloaded `.AppImage` with Gear Lever and click
+**Unlock** and then **Move to the app menu**. Campaign Manager then appears in your app menu
+like any other program, and Gear Lever tells you when a new version is out and installs it
+for you, because each AppImage carries a pointer to this project's releases. Other
+AppImage tools that read that pointer, such as AppImageUpdate, work too. Versions before
+0.4.6 don't carry it, so download 0.4.6 or newer once to start getting updates.
+
 To build it yourself instead, see [Building from source](#building-from-source).
 
 ---
