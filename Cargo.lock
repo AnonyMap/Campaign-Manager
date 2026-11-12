@@ -597,7 +597,7 @@ dependencies = [
 
 [[package]]
 name = "campaign-manager"
-version = "0.4.6"
+version = "0.4.7"
 dependencies = [
  "ab_glyph",
  "chrono",
@@ -686,7 +686,7 @@ dependencies = [
 
 [[package]]
 name = "cm_core"
-version = "0.4.6"
+version = "0.4.7"
 dependencies = [
  "chrono",
  "fastrand",

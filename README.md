@@ -176,6 +176,14 @@ The app is deliberately lenient. It suggests a structure but never enforces one.
   its name. **Search** (Ctrl/⌘ F) looks through the whole campaign and wiki.
 - **Back and forward** (Ctrl/⌘ [ and ]): move between the screens and records you opened,
   like in a browser.
+- **Jot down a story card from anywhere** (Ctrl/⌘ N). A small window opens over whatever
+  you're looking at, with the cursor already in the title. Type, press Enter, and the card
+  lands in the ideas pile, linked to the NPC, place or item that was on screen if you like.
+  Esc closes it and keeps what you typed for next time.
+- **Tooltips** explain buttons and screens when you rest the pointer on them. You can turn
+  them off or change how quickly they appear in Settings › Appearance (previews of items,
+  quests and conditions still show). The same page turns off the cursor jumping into new
+  cards and characters, and lets Ctrl/⌘ N go straight to Story cards instead.
 - **Formatted writing.** Bold looks bold, lists continue when you press Enter, and checkboxes
   can be clicked. Underneath it's Markdown.
 - **Import and export.** Start a new campaign from an existing one ("same world, new
@@ -196,7 +204,8 @@ menus, and **Ctrl/⌘ /** lists every shortcut.
 | Ctrl F | Search |
 | Ctrl [ / Ctrl ] (or mouse back/forward) | Back / forward |
 | Ctrl 1 … 9 | Overview, Run session, Story cards, Story board, NPCs, Places, Encounters, Combat, Wiki |
-| Ctrl N / Ctrl Shift N | New story card / new NPC |
+| Ctrl N / Ctrl Shift N | New story card (from any screen) / new NPC |
+| Enter or Ctrl Enter | In the New story card window: add the card |
 | Ctrl S, Ctrl Z, Ctrl Shift Z | Save, undo, redo |
 | Ctrl D | Dice roller |
 | Ctrl = / Ctrl − / Ctrl 0 | Larger / smaller / normal text |

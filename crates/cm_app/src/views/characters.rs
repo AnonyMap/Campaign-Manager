@@ -32,6 +32,11 @@ pub struct State {
 // ---------------------------------------------------------------------------
 
 /// Editor for fields common to PCs and NPCs. `is_pc` switches labels (class vs type, level vs CR).
+/// The name box of a character's editor (new characters put the cursor here).
+pub fn name_id(character: Id) -> egui::Id {
+    egui::Id::new(("char_name", character))
+}
+
 pub fn core_editor(
     ui: &mut egui::Ui,
     core: &mut CharacterCore,
@@ -82,7 +87,11 @@ pub fn core_editor(
         ui.vertical(|ui| {
             egui::Grid::new(("core", id)).num_columns(2).spacing([10.0, 4.0]).show(ui, |ui| {
                 ui.label(if is_pc { "Character name" } else { "Name" });
-                ui.add_sized([220.0, ui.spacing().interact_size.y], egui::TextEdit::singleline(&mut core.name));
+                let r = ui.add_sized(
+                    [220.0, ui.spacing().interact_size.y],
+                    egui::TextEdit::singleline(&mut core.name).id(name_id(id)),
+                );
+                ui_util::take_focus_if_asked(ui, &r, &core.name);
                 ui.end_row();
                 ui.label("Species");
                 ui.add_sized([220.0, ui.spacing().interact_size.y], egui::TextEdit::singleline(&mut core.species));
@@ -355,6 +364,7 @@ pub fn show_players(ui: &mut egui::Ui, doc: &mut Doc, sh: &mut Shared, st: &mut 
         if ui.button("➕ New player character").clicked() {
             let pc = PlayerCharacter::default();
             st.selected = Some(pc.id);
+            ui_util::focus_when_shown(ui.ctx(), name_id(pc.id));
             doc.c.players.push(pc);
         }
         ui_util::filter_box(ui, &mut st.filter, "Filter…");
@@ -452,6 +462,7 @@ pub fn show_npcs(ui: &mut egui::Ui, doc: &mut Doc, sh: &mut Shared, st: &mut Sta
             if ui.button("➕ NPC").clicked() {
                 let n = Npc::default();
                 st.selected = Some(n.id);
+                ui_util::focus_when_shown(ui.ctx(), name_id(n.id));
                 doc.c.npcs.push(n);
             }
             if ui.button("➕ Monster").clicked() {
@@ -460,6 +471,7 @@ pub fn show_npcs(ui: &mut egui::Ui, doc: &mut Doc, sh: &mut Shared, st: &mut Sta
                     ..Default::default()
                 };
                 st.selected = Some(n.id);
+                ui_util::focus_when_shown(ui.ctx(), name_id(n.id));
                 doc.c.npcs.push(n);
             }
         });

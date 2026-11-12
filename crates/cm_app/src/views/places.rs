@@ -835,7 +835,7 @@ fn stock_table(ui: &mut egui::Ui, doc: &mut Doc, sh: &mut Shared, st: &mut State
             for (i, e) in stock.iter().enumerate() {
                 let r = ui.label(RichText::new(&e.item.name).color(treasure::rarity_color(ui, e.item.rarity)));
                 let it = e.item.clone();
-                r.on_hover_ui(|ui| {
+                ui_util::hover_preview(r, |ui| {
                     ui.set_max_width(360.0);
                     ui.label(RichText::new(it.subtitle()).italics());
                     if it.value_gp() > 0.0 {

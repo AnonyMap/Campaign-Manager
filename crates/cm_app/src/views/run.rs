@@ -402,7 +402,7 @@ fn secret_row(ui: &mut egui::Ui, c: &StoryCard, sh: &mut Shared, reveal: &mut Op
         }
         if !c.body.trim().is_empty() {
             let body = c.body.clone();
-            r.on_hover_ui(|ui| {
+            ui_util::hover_preview(r, |ui| {
                 ui.set_max_width(360.0);
                 ui.label(body);
             });

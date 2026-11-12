@@ -88,6 +88,15 @@ pub struct AppSettings {
     pub date_style: cm_core::calendar::DateStyle,
     /// Write in Markdown fields with the marks showing (plain text box) instead of formatted.
     pub markdown_source: bool,
+    /// Hovering over a button or label explains it.
+    pub show_tooltips: bool,
+    /// Seconds the pointer must rest before a tooltip appears.
+    pub tooltip_delay: f32,
+    /// A new card, quest or character puts the cursor in its first box.
+    pub focus_new_records: bool,
+    /// ⌘/Ctrl+N (and ➕ Card) open a small "New story card" window over the current
+    /// screen instead of going to Story cards.
+    pub quick_card: bool,
 }
 
 impl Default for AppSettings {
@@ -112,6 +121,10 @@ impl Default for AppSettings {
             week_start: cm_core::calendar::WeekStart::Sunday,
             date_style: cm_core::calendar::DateStyle::Us,
             markdown_source: false,
+            show_tooltips: true,
+            tooltip_delay: 0.5,
+            focus_new_records: true,
+            quick_card: true,
         }
     }
 }
@@ -152,6 +165,7 @@ impl AppSettings {
             Err(_) => Self::default(),
         };
         s.migrate();
+        s.tooltip_delay = if s.tooltip_delay.is_finite() { s.tooltip_delay.clamp(0.0, 5.0) } else { 0.5 };
         s
     }
 
@@ -267,6 +281,12 @@ impl AppSettings {
 
         let base = self.font_size.clamp(8.0, 40.0);
         let compact = self.compact;
+        let show_tooltips = self.show_tooltips;
+        let tooltip_delay = if self.tooltip_delay.is_finite() {
+            self.tooltip_delay.clamp(0.0, 5.0)
+        } else {
+            0.5
+        };
         ctx.style_mut_of(theme, |style| {
             use egui::FontId;
             style.text_styles = [
@@ -281,6 +301,8 @@ impl AppSettings {
             style.spacing.button_padding = if compact { egui::vec2(4.0, 1.0) } else { egui::vec2(6.0, 3.0) };
             style.spacing.interact_size.y = base + if compact { 4.0 } else { 8.0 };
             style.url_in_tooltip = true;
+            // "off" is a delay nobody will wait out (not infinity: egui schedules a repaint for it)
+            style.interaction.tooltip_delay = if show_tooltips { tooltip_delay } else { 1.0e6 };
         });
         ctx.set_zoom_factor(self.ui_scale.clamp(0.5, 3.0));
     }

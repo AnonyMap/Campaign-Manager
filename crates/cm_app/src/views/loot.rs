@@ -310,7 +310,7 @@ fn result(ui: &mut egui::Ui, doc: &mut Doc, sh: &mut Shared, st: &mut State) {
                 Some(it) => {
                     let r = ui.label(RichText::new(line.label()).color(rarity_color(ui, it.rarity)));
                     let it2 = it.clone();
-                    r.on_hover_ui(|ui| {
+                    ui_util::hover_preview(r, |ui| {
                         ui.set_max_width(380.0);
                         ui.label(RichText::new(it2.subtitle()).italics());
                         let d: String = it2.description.chars().take(400).collect();

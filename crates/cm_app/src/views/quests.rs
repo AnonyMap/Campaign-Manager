@@ -98,6 +98,7 @@ pub fn show(ui: &mut egui::Ui, doc: &mut Doc, sh: &mut Shared, st: &mut State) {
                     ..Default::default()
                 });
                 st.selected = Some(c.id);
+                ui_util::focus_when_shown(ui.ctx(), egui::Id::new(("quest_title", c.id)));
                 doc.c.story_cards.push(c);
             }
             ui.menu_button("Make a card a quest…", |ui| {
@@ -214,7 +215,7 @@ pub fn show(ui: &mut egui::Ui, doc: &mut Doc, sh: &mut Shared, st: &mut State) {
                 }
                 let giver = q.giver.as_ref().and_then(|g| doc.c.link_name(g));
                 let reward = q.reward_summary();
-                r.on_hover_ui(|ui| {
+                ui_util::hover_preview(r, |ui| {
                     if let Some(g) = &giver {
                         ui.label(format!("From {g}"));
                     }
@@ -248,12 +249,14 @@ pub fn show(ui: &mut egui::Ui, doc: &mut Doc, sh: &mut Shared, st: &mut State) {
                 }
             });
         });
-        ui.add(
+        let r = ui.add(
             egui::TextEdit::singleline(&mut card.title)
+                .id(egui::Id::new(("quest_title", id)))
                 .hint_text("Quest name")
                 .font(egui::TextStyle::Heading)
                 .desired_width(f32::INFINITY),
         );
+        ui_util::take_focus_if_asked(ui, &r, &card.title);
         ui_util::markdown_editor(ui, ("questbody", id), &mut card.body, &mut sh.md, 6);
         quest_panel(ui, doc, sh, id, &mut st.ui);
         section(ui, "Links");

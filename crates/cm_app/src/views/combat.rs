@@ -657,7 +657,7 @@ fn table(ui: &mut egui::Ui, doc: &mut Doc, sh: &mut Shared, st: &mut State, enc:
                                     label = format!("{label} ({r})");
                                 }
                                 let chip = ui.add(egui::Button::new(RichText::new(label).small()).corner_radius(8));
-                                let chip = chip.on_hover_ui(|ui| {
+                                let chip = ui_util::hover_preview(chip, |ui| {
                                     ui.label(RichText::new(&ac.name).strong());
                                     match def {
                                         Some(d) => {

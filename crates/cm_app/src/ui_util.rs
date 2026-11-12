@@ -213,6 +213,104 @@ pub fn opt_u32(ui: &mut Ui, id_salt: impl std::hash::Hash, value: &mut Option<u3
 }
 
 // ---------------------------------------------------------------------------
+// The cursor goes into a new record's first box (Settings › Appearance › New records)
+// ---------------------------------------------------------------------------
+
+fn focus_pref_id() -> egui::Id {
+    egui::Id::new("focus_new_pref")
+}
+fn pending_focus_id() -> egui::Id {
+    egui::Id::new("pending_focus")
+}
+
+/// Whether new records take the cursor (set from the user's settings each frame).
+pub fn set_focus_new_pref(ctx: &egui::Context, on: bool) {
+    ctx.data_mut(|d| d.insert_temp(focus_pref_id(), on));
+}
+
+/// Ask the text box with this id to take the cursor when it's next drawn, if the
+/// user wants that. The request lapses after a few frames if the box never appears.
+pub fn focus_when_shown(ctx: &egui::Context, id: egui::Id) {
+    if ctx.data(|d| d.get_temp::<bool>(focus_pref_id())).unwrap_or(true) {
+        let frame = ctx.cumulative_pass_nr();
+        ctx.data_mut(|d| d.insert_temp(pending_focus_id(), (id, frame)));
+    }
+}
+
+/// Call right after drawing a text box: gives it the cursor (with its text selected, so
+/// typing replaces a placeholder like "New quest") if [`focus_when_shown`] asked for it.
+pub fn take_focus_if_asked(ui: &Ui, resp: &egui::Response, text: &str) {
+    let ctx = ui.ctx();
+    let Some((id, frame)) = ctx.data(|d| d.get_temp::<(egui::Id, u64)>(pending_focus_id())) else {
+        return;
+    };
+    if ctx.cumulative_pass_nr().saturating_sub(frame) > 5 {
+        ctx.data_mut(|d| d.remove::<(egui::Id, u64)>(pending_focus_id()));
+        return;
+    }
+    if id != resp.id {
+        return;
+    }
+    ctx.data_mut(|d| d.remove::<(egui::Id, u64)>(pending_focus_id()));
+    resp.request_focus();
+    resp.scroll_to_me(None);
+    let mut state = egui::text_edit::TextEditState::load(ctx, resp.id).unwrap_or_default();
+    let all = egui::text_selection::CCursorRange::two(egui::text::CCursor::new(0), egui::text::CCursor::new(text.chars().count()));
+    state.cursor.set_char_range(Some(all));
+    state.store(ctx, resp.id);
+}
+
+/// A hover preview of a record's contents (an item's description, a condition's
+/// effects…). Unlike hover hints, these still show when tooltips are turned off in
+/// Settings, since they're information rather than help.
+pub fn hover_preview(r: egui::Response, add_contents: impl FnOnce(&mut Ui)) -> egui::Response {
+    if !tooltips_off(&r.ctx) {
+        return r.on_hover_ui(add_contents);
+    }
+    let ctx = r.ctx.clone();
+    with_normal_delay(&ctx, || r.on_hover_ui(add_contents))
+}
+
+fn tooltips_off(ctx: &egui::Context) -> bool {
+    ctx.style().interaction.tooltip_delay >= 1.0e5
+}
+
+/// Run `f` with the default tooltip delay, then put the user's setting back.
+fn with_normal_delay<R>(ctx: &egui::Context, f: impl FnOnce() -> R) -> R {
+    let delay = ctx.style().interaction.tooltip_delay;
+    ctx.style_mut(|s| s.interaction.tooltip_delay = 0.5);
+    let out = f();
+    ctx.style_mut(|s| s.interaction.tooltip_delay = delay);
+    out
+}
+
+/// A tooltip beside the widget (to its right) rather than under it, so it doesn't
+/// cover the next row of a menu. `even_when_off` keeps it when tooltips are turned off.
+pub fn side_tooltip(r: &egui::Response, even_when_off: bool, add_contents: impl FnOnce(&mut Ui)) {
+    let show = if even_when_off && tooltips_off(&r.ctx) {
+        with_normal_delay(&r.ctx, || egui::Tooltip::should_show_tooltip(r, false))
+    } else {
+        egui::Tooltip::should_show_tooltip(r, false)
+    };
+    if !show {
+        return;
+    }
+    egui::Popup::from_response(r)
+        // the id egui gives a widget's first tooltip, so it knows the tooltip is open
+        .id(egui::Tooltip::tooltip_id(r.id, 0))
+        .kind(egui::PopupKind::Tooltip)
+        .align(egui::RectAlign::RIGHT_START)
+        .gap(6.0)
+        .width(300.0)
+        .sense(egui::Sense::hover())
+        .open(true)
+        .show(|ui| {
+            ui.style_mut().interaction.selectable_labels = false;
+            add_contents(ui)
+        });
+}
+
+// ---------------------------------------------------------------------------
 // Dates (week start and date style come from the user's settings each frame)
 // ---------------------------------------------------------------------------
 

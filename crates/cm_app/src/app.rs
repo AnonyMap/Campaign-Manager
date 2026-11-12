@@ -74,6 +74,33 @@ pub const NAV_GROUPS: &[(&str, &[(View, &str, &str)])] = &[
 ];
 
 impl View {
+    /// One line on what the screen is for (shown when hovering over it in the menu).
+    pub fn blurb(self) -> &'static str {
+        match self {
+            View::Home => "The campaign at a glance: next session, in-world date, open threads, ideas pile and recent cards",
+            View::Run => "Everything for the session at the table: its cards, the people in it, the party and active quests",
+            View::Cards => "Notes about anything in the story: scenes, secrets, hooks, rumors. New ideas land in the ideas pile",
+            View::Board => "Lay story cards out on a table and draw links between them",
+            View::Plot => "Your story cards along a timeline, one row per plot thread",
+            View::Threads => "Storylines that group story cards (each one becomes a row on the Plot line)",
+            View::Quests => "Story cards that are quests: who gives them, their steps and rewards",
+            View::Sessions => "Plan sessions, assign cards to them and keep notes on what happened",
+            View::Places => "Towns, dungeons, shops and other locations, with who and what is found there",
+            View::Maps => "Map images with pins for places, cards and characters",
+            View::Factions => "Groups and organizations, their members and how they feel about each other",
+            View::Players => "The party's characters: stats, rolls, inventory and notes",
+            View::Npcs => "Everyone else: non-player characters and named monsters, with their stat blocks",
+            View::Bestiary => "Stat blocks for monsters and NPCs, imported or written by hand",
+            View::Items => "Weapons, armor, magic items and anything else to hand out",
+            View::Loot => "Roll treasure by challenge rating and hand it to characters",
+            View::Encounters => "Prepare fights: who's in them and how hard they are",
+            View::Combat => "Initiative, hit points and conditions during a fight",
+            View::Wiki => "A folder of Markdown notes (works with Obsidian) for lore and reference",
+            View::Search => "Search everything in the campaign",
+            View::Settings => "Appearance, saving, calendars and campaign options",
+        }
+    }
+
     pub const NAV: [(View, &'static str); 20] = [
         (View::Home, "Overview"),
         (View::Run, "Run session"),
@@ -384,6 +411,25 @@ pub struct App {
     show_shortcuts: bool,
     /// The "Go to…" switcher is open: (query, highlighted row).
     go_to: Option<(String, usize)>,
+    /// The "New story card" window is open over the current screen.
+    quick_card: Option<QuickCard>,
+    /// What was typed in it when it was last closed without adding (offered next time).
+    quick_draft: Option<(String, String)>,
+}
+
+/// The small "New story card" window ⌘/Ctrl+N opens on any screen.
+#[derive(Debug, Default)]
+struct QuickCard {
+    title: String,
+    body: String,
+    /// The record on screen when it was opened, offered as a link.
+    link: Option<Link>,
+    link_it: bool,
+    restored: bool,
+}
+
+fn quick_title_id() -> egui::Id {
+    egui::Id::new("quick_card_title")
 }
 
 /// Where the user is: a screen and the record open on it.
@@ -441,6 +487,8 @@ impl App {
             last_place: None,
             show_shortcuts: false,
             go_to: None,
+            quick_card: None,
+            quick_draft: None,
         };
         // ⌘/Ctrl +/- change the app's own text size instead (see `shortcuts`)
         cc.egui_ctx.options_mut(|o| o.zoom_with_keyboard = false);
@@ -1131,14 +1179,14 @@ impl App {
                     .add_enabled(has, egui::Button::new("New story card").shortcut_text(sc::label(ctx, &sc::NEW_CARD)))
                     .clicked()
                 {
-                    self.new_card();
+                    self.new_card(ctx);
                     ui.close();
                 }
                 if ui
                     .add_enabled(has, egui::Button::new("New NPC").shortcut_text(sc::label(ctx, &sc::NEW_NPC)))
                     .clicked()
                 {
-                    self.new_npc();
+                    self.new_npc(ctx);
                     ui.close();
                 }
                 ui.separator();
@@ -1236,14 +1284,14 @@ impl App {
                 .on_hover_text(sc::with(&ctx, "New story card", &sc::NEW_CARD))
                 .clicked()
             {
-                self.new_card();
+                self.new_card(&ctx);
             }
             if ui
                 .add_enabled(has, egui::Button::new("➕ NPC"))
                 .on_hover_text(sc::with(&ctx, "New NPC", &sc::NEW_NPC))
                 .clicked()
             {
-                self.new_npc();
+                self.new_npc(&ctx);
             }
             let combat_key = egui::KeyboardShortcut::new(Modifiers::COMMAND, sc::VIEW_KEYS[7]);
             if ui
@@ -1362,7 +1410,23 @@ impl App {
                     });
                 }
                 for (v, icon, label) in items.iter() {
-                    if nav_tab(ui, icon, label, count(*v), self.view == *v, collapsed, theme).clicked() {
+                    let key = VIEW_SHORTCUTS
+                        .iter()
+                        .position(|x| x == v)
+                        .map(|k| sc::label(ui.ctx(), &egui::KeyboardShortcut::new(Modifiers::COMMAND, sc::VIEW_KEYS[k])));
+                    let r = nav_tab(ui, icon, label, count(*v), self.view == *v, collapsed, theme);
+                    let tip = |ui: &mut egui::Ui| {
+                        if collapsed {
+                            ui.label(RichText::new(*label).strong());
+                        }
+                        ui.label(v.blurb());
+                        if let Some(k) = &key {
+                            ui.weak(format!("Shortcut: {k}"));
+                        }
+                    };
+                    // icons only: the screen's name still shows with tooltips turned off
+                    ui_util::side_tooltip(&r, collapsed, tip);
+                    if r.clicked() {
                         clicked = Some(*v);
                     }
                 }
@@ -1705,6 +1769,10 @@ impl App {
         }
         if has && sc::pressed(ctx, &sc::GO_TO) {
             self.go_to = if self.go_to.is_some() { None } else { Some((String::new(), 0)) };
+            if let Some(q) = self.quick_card.take() {
+                let typed = !q.title.trim().is_empty() || !q.body.trim().is_empty();
+                self.quick_draft = typed.then(|| (q.title, q.body));
+            }
         }
         if undo {
             self.do_undo();
@@ -1728,9 +1796,9 @@ impl App {
             }
         }
         if new_npc {
-            self.new_npc();
+            self.new_npc(ctx);
         } else if has && sc::pressed(ctx, &sc::NEW_CARD) {
-            self.new_card();
+            self.new_card(ctx);
         }
         // (on many keyboards "+" needs Shift, so ⌘+ arrives as ⌘⇧+ or ⌘⇧=)
         let shift_cmd = Modifiers::COMMAND.plus(Modifiers::SHIFT);
@@ -1788,6 +1856,8 @@ impl App {
         if !text_focused && ctx.input(|i| i.key_pressed(Key::Escape)) && !egui::Popup::is_any_open(ctx) {
             if self.go_to.is_some() {
                 self.go_to = None;
+            } else if self.quick_card.is_some() {
+                // (the window keeps what was typed for next time)
             } else if self.show_shortcuts {
                 self.show_shortcuts = false;
             } else if self.image_viewer.is_some() {
@@ -1798,19 +1868,136 @@ impl App {
         }
     }
 
-    fn new_card(&mut self) {
+    /// ⌘/Ctrl+N or ➕ Card: on Story cards, a new card there; elsewhere the "New story
+    /// card" window over the current screen (unless the user turned that off).
+    fn new_card(&mut self, ctx: &egui::Context) {
+        if self.doc.is_none() {
+            return;
+        }
+        if self.settings.quick_card && self.view != View::Cards {
+            if self.quick_card.is_none() {
+                let link = self.current_place().link;
+                let (title, body) = self.quick_draft.take().unwrap_or_default();
+                self.go_to = None;
+                self.quick_card = Some(QuickCard {
+                    restored: !title.is_empty() || !body.is_empty(),
+                    title,
+                    body,
+                    link_it: link.is_some(),
+                    link,
+                });
+            }
+            ui_util::focus_when_shown(ctx, quick_title_id());
+            return;
+        }
         if let Some(doc) = &mut self.doc {
             let card = StoryCard::default();
             self.vs.cards.selected = Some(card.id);
+            ui_util::focus_when_shown(ctx, views::cards::title_id(card.id));
             doc.c.story_cards.push(card);
             self.view = View::Cards;
         }
     }
 
-    fn new_npc(&mut self) {
+    fn quick_card_window(&mut self, ctx: &egui::Context) {
+        let Some(mut q) = self.quick_card.take() else { return };
+        let Some(doc) = &mut self.doc else { return };
+        let link_name = q.link.as_ref().and_then(|l| doc.c.link_name(l));
+        // taken before the text boxes see it (a multi-line box would add a new line)
+        let mut add = ctx.input_mut(|i| i.consume_shortcut(&sc::QUICK_ADD)).then_some(false);
+        let mut close = false;
+        egui::Window::new("New story card")
+            .collapsible(false)
+            .resizable(false)
+            .anchor(egui::Align2::CENTER_TOP, [0.0, 80.0])
+            .show(ctx, |ui| {
+                ui.set_width(480.0);
+                let r = ui.add(
+                    egui::TextEdit::singleline(&mut q.title)
+                        .id(quick_title_id())
+                        .hint_text("Title (optional)")
+                        .font(egui::TextStyle::Heading)
+                        .desired_width(f32::INFINITY),
+                );
+                ui_util::take_focus_if_asked(ui, &r, &q.title);
+                if r.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter)) {
+                    add = Some(false);
+                }
+                ui.add(
+                    egui::TextEdit::multiline(&mut q.body)
+                        .id(egui::Id::new("quick_card_body"))
+                        .hint_text("What happens, who's involved… (Markdown works)")
+                        .desired_rows(5)
+                        .desired_width(f32::INFINITY),
+                );
+                if let Some(name) = &link_name {
+                    ui.checkbox(&mut q.link_it, format!("Link it to {name}"));
+                }
+                if q.restored {
+                    ui.horizontal(|ui| {
+                        ui.weak("This is what you typed last time.");
+                        if ui.small_button("Clear").clicked() {
+                            q.title.clear();
+                            q.body.clear();
+                            q.restored = false;
+                        }
+                    });
+                }
+                ui.add_space(4.0);
+                ui.horizontal(|ui| {
+                    if ui
+                        .add(egui::Button::new("Add card").shortcut_text(sc::label(ctx, &sc::QUICK_ADD)))
+                        .on_hover_text("Add it to the ideas pile on Story cards and carry on here")
+                        .clicked()
+                    {
+                        add = Some(false);
+                    }
+                    if ui.button("Add and open").on_hover_text("Add it and go to it on Story cards").clicked() {
+                        add = Some(true);
+                    }
+                    if ui.button("Cancel").clicked() {
+                        close = true;
+                    }
+                });
+                ui.weak("Enter in the title adds it · Tab moves to the text · Esc closes");
+            });
+        if ctx.input(|i| i.key_pressed(Key::Escape)) {
+            close = true;
+        }
+        match add {
+            Some(open) => {
+                let mut card = StoryCard {
+                    title: q.title.trim().to_string(),
+                    body: q.body.trim_end().to_string(),
+                    ..Default::default()
+                };
+                if q.link_it {
+                    card.links.extend(q.link.clone());
+                }
+                let (id, name) = (card.id, card.display_title());
+                doc.c.story_cards.push(card);
+                doc.touched = true;
+                self.quick_draft = None;
+                if open {
+                    self.vs.cards.selected = Some(id);
+                    self.view = View::Cards;
+                } else {
+                    self.sh.toast(format!("Added “{name}” to the ideas pile"));
+                }
+            }
+            None if close => {
+                let typed = !q.title.trim().is_empty() || !q.body.trim().is_empty();
+                self.quick_draft = typed.then(|| (q.title, q.body));
+            }
+            None => self.quick_card = Some(q),
+        }
+    }
+
+    fn new_npc(&mut self, ctx: &egui::Context) {
         if let Some(doc) = &mut self.doc {
             let npc = cm_core::Npc::default();
             self.vs.npcs.selected = Some(npc.id);
+            ui_util::focus_when_shown(ctx, views::characters::name_id(npc.id));
             doc.c.npcs.push(npc);
             self.view = View::Npcs;
         }
@@ -2072,6 +2259,7 @@ impl eframe::App for App {
                 .toast("The system file dialog failed to open — paste a path instead, or drag the file onto the window.");
         }
         ui_util::set_date_prefs(ctx, self.settings.week_start, self.settings.date_style);
+        ui_util::set_focus_new_pref(ctx, self.settings.focus_new_records);
         // "Markdown" toggle in the text editors <-> the saved setting
         if crate::rich_text::take_pref_changed() {
             self.settings.markdown_source = crate::rich_text::show_markdown();
@@ -2233,6 +2421,7 @@ impl eframe::App for App {
         }
 
         self.go_to_window(ctx);
+        self.quick_card_window(ctx);
         sc::sheet_window(ctx, &mut self.show_shortcuts);
         if self.doc.is_some() {
             self.track_place();
@@ -2292,7 +2481,7 @@ fn nav_tab(ui: &mut egui::Ui, icon: &str, label: &str, count: Option<String>, ac
     };
     if collapsed {
         draw_icon(rect.center());
-        return resp.on_hover_text(label);
+        return resp;
     }
     draw_icon(egui::pos2(rect.min.x + 24.0, rect.center().y));
     let label_galley = {

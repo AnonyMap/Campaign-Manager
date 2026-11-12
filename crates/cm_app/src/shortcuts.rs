@@ -30,6 +30,8 @@ pub const GO_TO: KeyboardShortcut = cmd(Key::P);
 pub const DICE: KeyboardShortcut = cmd(Key::D);
 pub const NEW_CARD: KeyboardShortcut = cmd(Key::N);
 pub const NEW_NPC: KeyboardShortcut = cmd_shift(Key::N);
+/// Adds the card in the "New story card" window.
+pub const QUICK_ADD: KeyboardShortcut = cmd(Key::Enter);
 pub const OPEN: KeyboardShortcut = cmd(Key::O);
 pub const SETTINGS: KeyboardShortcut = cmd(Key::Comma);
 pub const BACK: KeyboardShortcut = cmd(Key::OpenBracket);
@@ -148,7 +150,7 @@ pub const SHEET: &[(&str, &[(Keys, &str)])] = &[
                 Keys::Text("⌘/Ctrl + 1 … 9"),
                 "Overview, Run session, Story cards, Story board, NPCs, Places, Encounters, Combat, Wiki",
             ),
-            (Keys::Sc(&[NEW_CARD]), "New story card"),
+            (Keys::Sc(&[NEW_CARD]), "New story card (a small window over the screen you're on)"),
             (Keys::Sc(&[NEW_NPC]), "New NPC"),
             (Keys::Sc(&[DICE]), "Show / hide the dice roller"),
             (Keys::Sc(&[BIGGER, SMALLER, NORMAL_SIZE]), "Larger / smaller / normal text"),
@@ -158,6 +160,14 @@ pub const SHEET: &[(&str, &[(Keys, &str)])] = &[
             (Keys::Sc(&[HELP]), "Dice syntax help"),
             (Keys::Text("Mouse back / forward buttons"), "Back / forward"),
             (Keys::Text("Esc"), "Close the window or menu on top"),
+        ],
+    ),
+    (
+        "New story card window",
+        &[
+            (Keys::Text("Enter (in the title)"), "Add the card"),
+            (Keys::Sc(&[QUICK_ADD]), "Add the card (from anywhere in the window)"),
+            (Keys::Text("Esc"), "Close it (what you typed comes back next time)"),
         ],
     ),
     (
@@ -304,6 +314,7 @@ mod tests {
             DICE,
             NEW_CARD,
             NEW_NPC,
+            QUICK_ADD,
             OPEN,
             SETTINGS,
             BACK,

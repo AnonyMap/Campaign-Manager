@@ -63,6 +63,7 @@ pub fn show(ui: &mut egui::Ui, doc: &mut Doc, sh: &mut Shared, st: &mut State) {
             if ui.button("➕ New card").clicked() {
                 let c = StoryCard::default();
                 st.selected = Some(c.id);
+                ui_util::focus_when_shown(ui.ctx(), title_id(c.id));
                 doc.c.story_cards.push(c);
             }
             ui.checkbox(&mut st.ideas_only, "Ideas pile only");
@@ -175,6 +176,11 @@ pub fn show(ui: &mut egui::Ui, doc: &mut Doc, sh: &mut Shared, st: &mut State) {
     ui_util::pinned_scroll(ui, ("card_edit", id), |ui| editor(ui, doc, sh, id, &mut st.quest_ui));
 }
 
+/// The title box of a card's editor (new cards put the cursor here).
+pub fn title_id(card: Id) -> egui::Id {
+    egui::Id::new(("card_title", card))
+}
+
 fn editor(ui: &mut egui::Ui, doc: &mut Doc, sh: &mut Shared, id: Id, qu: &mut crate::views::quests::QuestUi) {
     let dir = doc.dir.clone();
     let before = doc.c.card(id).cloned();
@@ -215,12 +221,14 @@ fn editor(ui: &mut egui::Ui, doc: &mut Doc, sh: &mut Shared, id: Id, qu: &mut cr
             }
         });
     });
-    ui.add(
+    let r = ui.add(
         egui::TextEdit::singleline(&mut card.title)
+            .id(title_id(id))
             .hint_text("Untitled card (a title is optional)")
             .font(egui::TextStyle::Heading)
             .desired_width(f32::INFINITY),
     );
+    ui_util::take_focus_if_asked(ui, &r, &card.title);
 
     ui_util::markdown_editor(ui, ("cardbody", id), &mut card.body, &mut sh.md, 10);
 

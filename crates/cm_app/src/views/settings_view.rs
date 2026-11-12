@@ -156,6 +156,40 @@ fn appearance(ui: &mut egui::Ui, st: &mut State, s: &mut AppSettings) {
         ui.checkbox(&mut s.compact, "Compact (tighter spacing)");
         ui.end_row();
 
+        ui.label("Tooltips");
+        ui.vertical(|ui| {
+            ui.horizontal(|ui| {
+                ui.checkbox(&mut s.show_tooltips, "Explain things when the pointer rests on them")
+                    .on_hover_text("Like this");
+                ui.add_enabled_ui(s.show_tooltips, |ui| {
+                    ui.label("after");
+                    ui.add(
+                        egui::DragValue::new(&mut s.tooltip_delay)
+                            .range(0.0..=3.0)
+                            .speed(0.05)
+                            .fixed_decimals(1)
+                            .suffix(" s"),
+                    );
+                });
+            });
+            ui.weak("Previews of items, quests and conditions still show when this is off.");
+        });
+        ui.end_row();
+
+        ui.label("New records");
+        ui.vertical(|ui| {
+            ui.checkbox(&mut s.focus_new_records, "Put the cursor in a new card's title (or a new character's name)");
+            ui.checkbox(
+                &mut s.quick_card,
+                format!(
+                    "{} opens a small New story card window over the screen you're on",
+                    crate::shortcuts::label(ui.ctx(), &crate::shortcuts::NEW_CARD)
+                ),
+            )
+            .on_hover_text("Off: it goes to Story cards and starts the card there");
+        });
+        ui.end_row();
+
         ui.label("Saving");
         ui.horizontal(|ui| {
             ui.label("Autosave");

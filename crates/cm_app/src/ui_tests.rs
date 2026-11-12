@@ -170,8 +170,9 @@ fn monkey_clicks_and_types_everywhere() {
         if rng.u8(..5) == 0 {
             // a random keyboard shortcut (or a plain key: arrows, N, B, R, A, Esc, Enter, Tab)
             let cmd = egui::Modifiers::COMMAND;
-            let keys: [(egui::Modifiers, egui::Key); 30] = [
+            let keys: [(egui::Modifiers, egui::Key); 31] = [
                 (cmd, egui::Key::Z),
+                (cmd, egui::Key::Enter),
                 (cmd.plus(egui::Modifiers::SHIFT), egui::Key::Z),
                 (cmd, egui::Key::P),
                 (cmd, egui::Key::N),
@@ -375,11 +376,55 @@ fn keyboard_shortcuts_work() {
     press(&mut h, cmd, egui::Key::Num3);
     press(&mut h, cmd, egui::Key::OpenBracket);
     assert_eq!(h.state().view, View::Npcs);
-    // new card / new NPC
+    // new card: off Story cards, ⌘N opens the quick window with the cursor in its title
     let cards = h.state().doc.as_ref().unwrap().c.story_cards.len();
+    let npc = h.state().vs.npcs.selected.expect("an NPC is open");
     press(&mut h, cmd, egui::Key::N);
+    assert!(h.state().quick_card.is_some(), "⌘N didn't open the New story card window");
+    assert_eq!(h.state().view, View::Npcs);
+    assert_eq!(h.ctx.memory(|m| m.focused()), Some(quick_title_id()));
+    h.event(egui::Event::Text("Rumor at the docks".into()));
+    h.run_steps(2);
+    press(&mut h, egui::Modifiers::NONE, egui::Key::Enter);
+    {
+        let c = &h.state().doc.as_ref().unwrap().c;
+        assert_eq!(c.story_cards.len(), cards + 1);
+        let card = c.story_cards.last().unwrap();
+        assert_eq!(card.title, "Rumor at the docks");
+        assert_eq!(card.links, vec![cm_core::Link::Npc(npc)], "not linked to the NPC on screen");
+        assert!(card.in_ideas_pile);
+    }
+    assert!(h.state().quick_card.is_none());
+    assert_eq!(h.state().view, View::Npcs, "adding a quick card left the screen");
+    // Esc closes it but keeps what was typed for next time
+    press(&mut h, cmd, egui::Key::N);
+    h.event(egui::Event::Text("Half a thought".into()));
+    h.run_steps(2);
+    press(&mut h, egui::Modifiers::NONE, egui::Key::Escape);
+    assert!(h.state().quick_card.is_none());
     assert_eq!(h.state().doc.as_ref().unwrap().c.story_cards.len(), cards + 1);
+    press(&mut h, cmd, egui::Key::N);
+    assert_eq!(h.state().quick_card.as_ref().map(|q| q.title.as_str()), Some("Half a thought"));
+    press(&mut h, egui::Modifiers::NONE, egui::Key::Escape);
+    // on Story cards, ⌘N adds the card right there, title box ready for typing
+    press(&mut h, cmd, egui::Key::Num3);
+    press(&mut h, cmd, egui::Key::N);
+    assert_eq!(h.state().doc.as_ref().unwrap().c.story_cards.len(), cards + 2);
     assert_eq!(h.state().view, View::Cards);
+    let new = h.state().vs.cards.selected.unwrap();
+    assert_eq!(h.ctx.memory(|m| m.focused()), Some(crate::views::cards::title_id(new)));
+    // with the window turned off, ⌘N elsewhere goes to Story cards; with focusing off, no cursor
+    h.state_mut().settings.quick_card = false;
+    h.state_mut().settings.focus_new_records = false;
+    press(&mut h, cmd, egui::Key::Num1);
+    press(&mut h, cmd, egui::Key::N);
+    assert_eq!(h.state().view, View::Cards);
+    assert_eq!(h.state().doc.as_ref().unwrap().c.story_cards.len(), cards + 3);
+    assert!(h.state().quick_card.is_none());
+    let new = h.state().vs.cards.selected.unwrap();
+    assert_ne!(h.ctx.memory(|m| m.focused()), Some(crate::views::cards::title_id(new)));
+    h.state_mut().settings.quick_card = true;
+    h.state_mut().settings.focus_new_records = true;
     let npcs = h.state().doc.as_ref().unwrap().c.npcs.len();
     press(&mut h, cmd.plus(egui::Modifiers::SHIFT), egui::Key::N);
     assert_eq!(h.state().doc.as_ref().unwrap().c.npcs.len(), npcs + 1);
@@ -425,7 +470,9 @@ fn keyboard_shortcuts_work() {
 fn editor_shortcuts_format_text() {
     let mut h = harness(campaign("editor"));
     h.run_steps(3);
-    h.state_mut().new_card();
+    h.state_mut().view = View::Cards;
+    let ctx = h.ctx.clone();
+    h.state_mut().new_card(&ctx);
     h.run_steps(3);
     let id = h.state().vs.cards.selected.unwrap();
     // focus the card's text box: the multi-line input on screen
@@ -476,4 +523,74 @@ fn editor_shortcuts_format_text() {
     }
     let body = h.state().doc.as_ref().unwrap().c.card(id).unwrap().body.clone();
     assert!(body.starts_with("## "), "{body:?}");
+}
+
+#[test]
+fn tooltip_settings_reach_the_style() {
+    let mut h = harness(campaign("tips"));
+    h.run_steps(3);
+    let delay = |h: &Harness<'_, App>| h.ctx.style().interaction.tooltip_delay;
+    assert_eq!(delay(&h), 0.5);
+    h.state_mut().settings.tooltip_delay = 1.5;
+    h.run_steps(2);
+    assert_eq!(delay(&h), 1.5);
+    h.state_mut().settings.show_tooltips = false;
+    h.run_steps(2);
+    assert!(delay(&h) > 1.0e5, "tooltips still on");
+    // hover previews still get a normal delay while they're drawn, and it's put back after
+    let shown = std::cell::Cell::new(None);
+    h.state_mut().view = View::Home;
+    h.run_steps(1);
+    let ctx = h.ctx.clone();
+    let _ = ctx.run(Default::default(), |ctx| {
+        egui::CentralPanel::default().show(ctx, |ui| {
+            let r = ui.label("x");
+            ui_util::hover_preview(r, |_| {});
+            shown.set(Some(ui.ctx().style().interaction.tooltip_delay));
+        });
+    });
+    assert!(shown.get().unwrap() > 1.0e5, "hover_preview didn't restore the delay");
+    h.state_mut().settings.show_tooltips = true;
+    h.state_mut().settings.tooltip_delay = f32::INFINITY;
+    h.run_steps(2);
+    assert_eq!(delay(&h), 0.5, "a bad delay should fall back to the default");
+}
+
+#[test]
+fn new_records_take_the_cursor() {
+    let mut h = harness(campaign("focus"));
+    h.run_steps(3);
+    let focused = |h: &Harness<'_, App>| h.ctx.memory(|m| m.focused());
+    // ⌘⇧N: a new NPC with the cursor in its name
+    let ctx = h.ctx.clone();
+    h.state_mut().new_npc(&ctx);
+    h.run_steps(3);
+    let npc = h.state().vs.npcs.selected.unwrap();
+    assert_eq!(h.state().view, View::Npcs);
+    assert_eq!(focused(&h), Some(crate::views::characters::name_id(npc)));
+    // a stale request (the record never shown) doesn't steal focus later
+    ui_util::focus_when_shown(&ctx, egui::Id::new("never drawn"));
+    h.run_steps(10);
+    assert!(ctx.data(|d| d.get_temp::<(egui::Id, u64)>(egui::Id::new("pending_focus"))).is_none());
+    // ⌘Enter adds from the window and stays on the screen
+    h.state_mut().view = View::Home;
+    h.state_mut().new_card(&ctx);
+    h.run_steps(2);
+    assert!(h.state().quick_card.is_some());
+    assert_eq!(focused(&h), Some(quick_title_id()));
+    h.state_mut().quick_card.as_mut().unwrap().title = "Old map".into();
+    // the home screen has no record to link to
+    assert!(h.state().quick_card.as_ref().unwrap().link.is_none());
+    h.event(egui::Event::Key {
+        key: egui::Key::Enter,
+        physical_key: None,
+        pressed: true,
+        repeat: false,
+        modifiers: egui::Modifiers::COMMAND,
+    });
+    h.run_steps(3);
+    let c = &h.state().doc.as_ref().unwrap().c;
+    assert_eq!(c.story_cards.last().unwrap().title, "Old map");
+    assert!(c.story_cards.last().unwrap().links.is_empty());
+    assert_eq!(h.state().view, View::Home);
 }
